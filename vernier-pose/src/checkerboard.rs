@@ -64,6 +64,19 @@ pub struct CheckerboardCode {
     pub runner_up_false_accept: Real,
 }
 
+impl CheckerboardCode {
+    /// A point of the measured square lattice, in the pattern's lattice: the
+    /// decoded quarter-turn, then the decoded shift.
+    pub fn to_pattern(&self, (i, j): (Real, Real)) -> (Real, Real) {
+        // Row-major 2×2 rotation matrix.
+        let turn = TRANSFORMS[self.transform].map(|v| v as Real);
+        (
+            turn[0] * i + turn[1] * j + self.delta.0 as Real,
+            turn[2] * i + turn[3] * j + self.delta.1 as Real,
+        )
+    }
+}
+
 pub struct CheckerboardDecoder {
     code: CheckerboardCode,
 }
@@ -156,28 +169,88 @@ pub fn extract_code_with_packing(
     layout: CodeLayout,
     packing: CodePacking,
 ) -> Result<CheckerboardCode, CheckerboardError> {
-    let lfsr = Lfsr::maximal(order).ok_or(CheckerboardError::UnsupportedOrder(order))?;
-
+    if Lfsr::maximal(order).is_none() {
+        return Err(CheckerboardError::UnsupportedOrder(order));
+    }
     if subharmonic_ratios_with_packing(detection, intensity, packing)
         .iter()
         .any(|&r| r > SUBHARMONIC_LIMIT)
     {
         return Err(CheckerboardError::SubharmonicLock);
     }
-    let index = lfsr.window_index();
 
-    let plane1 = &detection.dir1.plane;
-    let plane2 = &detection.dir2.plane;
     let sign2 = handedness(detection);
+    // Centre phase: the plane fit for precision, the map for the 2π multiple
+    // (the squares were indexed from the map). Then the measured lattice
+    // point there: square `(i, j)` sits at `φ₁/π = i + j`, `φ₂/π = i - j`.
+    let centre_pixel = (detection.height / 2) * detection.width + detection.width / 2;
+    let snap = |fitted: Real, measured: Real| fitted + TAU * ((measured - fitted) / TAU).round();
+    let phase1 = snap(detection.dir1.plane.c, detection.phase1[centre_pixel]);
+    let phase2 = sign2 * snap(detection.dir2.plane.c, detection.phase2[centre_pixel]);
+    let centre_measured = (
+        (phase1 / PI + phase2 / PI) * 0.5,
+        (phase1 / PI - phase2 / PI) * 0.5,
+    );
 
-    let samples = accumulate_squares(
+    decode_phases(
         &detection.phase1,
         &detection.phase2,
         sign2,
         intensity,
         detection.width,
         detection.height,
-    );
+        centre_measured,
+        order,
+        layout,
+        packing,
+    )
+}
+
+/// The decode on bare unwrapped phase maps, for callers that measure the
+/// carriers some other way than one global detection (a perspective view,
+/// where the carrier frequency drifts across the frame).
+///
+/// The maps must have the pattern's own handedness: with `k1`, `k2` the phase
+/// gradients in pixel coordinates, `k1 × k2 < 0`, as [`handedness`] arranges
+/// for a detection. Pixels with a non-finite phase are skipped, so a map can mark
+/// where the pattern is not. `reference` is any point of the measured square
+/// lattice, `((φ₁ + φ₂)/2π, (φ₁ - φ₂)/2π)`; the returned `centre` is that
+/// point in the pattern's lattice.
+#[allow(clippy::too_many_arguments)]
+pub fn extract_code_from_phases(
+    phase1: &[Real],
+    phase2: &[Real],
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    reference: (Real, Real),
+    order: u32,
+    layout: CodeLayout,
+    packing: CodePacking,
+) -> Result<CheckerboardCode, CheckerboardError> {
+    decode_phases(phase1, phase2, 1.0, intensity, width, height, reference, order, layout, packing)
+}
+
+/// The decode shared by both entry points. `sign2` (±1) turns `phase2` to
+/// the pattern's handedness; `centre_measured` is the measured-lattice point
+/// reported, mapped into the pattern, as the code's `centre`.
+#[allow(clippy::too_many_arguments)]
+fn decode_phases(
+    phase1: &[Real],
+    phase2: &[Real],
+    sign2: Real,
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    centre_measured: (Real, Real),
+    order: u32,
+    layout: CodeLayout,
+    packing: CodePacking,
+) -> Result<CheckerboardCode, CheckerboardError> {
+    let lfsr = Lfsr::maximal(order).ok_or(CheckerboardError::UnsupportedOrder(order))?;
+    let index = lfsr.window_index();
+
+    let samples = accumulate_squares(phase1, phase2, sign2, intensity, width, height);
     // Squares per bit in two dimensions: one supercell holds `bits_per_cell`
     // of them per axis.
     let squares_per_bit =
@@ -186,17 +259,6 @@ pub fn extract_code_with_packing(
         return Err(CheckerboardError::NotEnoughSquares);
     }
     let white = binarize(&samples);
-
-    // Centre phase: the plane fit for precision, the map for the 2π multiple
-    // (the squares were indexed from the map).
-    let centre_pixel = (detection.height / 2) * detection.width + detection.width / 2;
-    let snap = |fitted: Real, measured: Real| fitted + TAU * ((measured - fitted) / TAU).round();
-    let phase1 = snap(plane1.c, detection.phase1[centre_pixel]);
-    let phase2 = sign2 * snap(plane2.c, detection.phase2[centre_pixel]);
-    let centre_measured = (
-        (phase1 / PI + phase2 / PI) * 0.5,
-        (phase1 / PI - phase2 / PI) * 0.5,
-    );
 
     let mut candidates: Vec<CheckerboardCode> = TRANSFORMS
         .iter()
@@ -376,6 +438,9 @@ fn accumulate_squares(
     for pixel in 0..width * height {
         let s = phase1[pixel] / PI;
         let d = sign2 * phase2[pixel] / PI;
+        if !(s.is_finite() && d.is_finite()) {
+            continue;
+        }
         let i = ((s + d) * 0.5).round();
         let j = ((s - d) * 0.5).round();
         if (s - (i + j)).abs() >= SAMPLE_RADIUS || (d - (i - j)).abs() >= SAMPLE_RADIUS {
