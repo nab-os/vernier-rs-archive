@@ -9,15 +9,19 @@
 //! show the whole board, and a pose comes out in the board's own frame.
 //!
 //! - [`measure`]: one image to pixel ↔ board correspondences.
+//! - [`calibrate`]: intrinsics and distortion from several views, and
+//!   [`solve_pnp`](calibrate::solve_pnp) for the pose of one.
 //! - [`camera`]: the pinhole and fisheye models.
 //! - [`geometry`]: rigid board poses, and the homographies they start from.
 //! - [`target`]: the board, and a renderer for rehearsing without a camera.
 
+pub mod calibrate;
 pub mod camera;
 pub mod geometry;
 pub mod measure;
 pub mod target;
 
+pub use calibrate::{Calibration, CalibrationError, PnpSolution, ViewFit, calibrate, solve_pnp};
 pub use camera::{Camera, Model};
 pub use geometry::RigidPose;
 pub use measure::{
