@@ -10,3 +10,4 @@ pub mod render_megarena;
 pub mod roundtrip_megarena;
 pub mod solve_pnp;
 pub mod undistort;
+pub mod webcam;

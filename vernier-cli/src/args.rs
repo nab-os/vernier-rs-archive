@@ -15,6 +15,7 @@ pub struct TopLevel {
 pub enum Command {
     Bench(BenchArgs),
     Calibrate(CalibrateArgs),
+    CalibrateWebcam(CalibrateWebcamArgs),
     CheckerboardFigures(CheckerboardFiguresArgs),
     DetectMegarena(DetectMegarenaArgs),
     RenderCheckerboard(RenderCheckerboardArgs),
@@ -306,6 +307,57 @@ pub struct CalibrateArgs {
     /// the photos
     #[argh(positional)]
     pub images: Vec<String>,
+}
+
+/// Calibrate a webcam live: frames are read through ffmpeg until enough
+/// distinct views of the board are in.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "calibrate-webcam")]
+pub struct CalibrateWebcamArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// camera device, or any input ffmpeg can open such as a video file
+    /// (default: /dev/video0)
+    #[argh(option, default = "String::from(\"/dev/video0\")")]
+    pub device: String,
+
+    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    #[argh(option)]
+    pub format: Option<String>,
+
+    /// capture size asked of the camera, e.g. 1280x720 (default: the camera's)
+    #[argh(option)]
+    pub video_size: Option<String>,
+
+    /// distinct views to collect (default: 15)
+    #[argh(option, default = "15")]
+    pub views: usize,
+
+    /// seconds between frames examined (default: 1.0)
+    #[argh(option, default = "1.0")]
+    pub interval: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera model: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// where to write the calibration (default: camera.json)
+    #[argh(option, default = "String::from(\"camera.json\")")]
+    pub output: String,
+
+    /// directory to save the kept frames in, to rerun with calibrate
+    #[argh(option)]
+    pub save_frames: Option<String>,
 }
 
 /// Find the pose of the board in photos taken with a calibrated camera.
