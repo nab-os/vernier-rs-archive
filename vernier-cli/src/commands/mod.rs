@@ -1,9 +1,12 @@
 //! CLI subcommands.
 
 pub mod benchmark;
+pub mod calibrate;
 pub mod checkerboard_figures;
 pub mod debug_render;
 pub mod detect_megarena;
 pub mod render_checkerboard;
 pub mod render_megarena;
 pub mod roundtrip_megarena;
+pub mod solve_pnp;
+pub mod undistort;
