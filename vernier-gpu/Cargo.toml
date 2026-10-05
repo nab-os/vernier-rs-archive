@@ -15,3 +15,6 @@ vulkano-shaders = "0.35.0"
 [dev-dependencies]
 nalgebra = "0.35.0"
 vernier-camera = { path = "../vernier-camera" }
+vernier-cpu = { path = "../vernier-cpu" }
+vernier-patterns = { path = "../vernier-patterns" }
+vernier-pose = { path = "../vernier-pose" }
