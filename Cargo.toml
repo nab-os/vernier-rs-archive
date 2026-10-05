@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["vernier-cabi", "vernier-cli", "vernier-core", "vernier-cpu", "vernier-cuda", "vernier-spectral", "vernier-detector", "vernier-gpu", "vernier-patterns", "vernier-pose", "vernier-py", "vernier-render"]
+members = ["vernier-cabi", "vernier-camera", "vernier-cli", "vernier-core", "vernier-cpu", "vernier-cuda", "vernier-spectral", "vernier-detector", "vernier-gpu", "vernier-patterns", "vernier-pose", "vernier-py", "vernier-render"]
 
 [profile.release]
 opt-level = 3

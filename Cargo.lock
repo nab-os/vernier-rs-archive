@@ -1812,6 +1812,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vernier-camera"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "nalgebra",
+ "rayon",
+ "rustfft",
+ "serde",
+ "vernier-core",
+ "vernier-cpu",
+ "vernier-patterns",
+ "vernier-pose",
+]
+
+[[package]]
 name = "vernier-cli"
 version = "0.1.0"
 dependencies = [
