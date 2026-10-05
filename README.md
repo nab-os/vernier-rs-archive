@@ -65,6 +65,44 @@ orientation.)
 
 ---
 
+## Camera calibration
+
+`vernier-camera` calibrates a camera, pinhole or fisheye, from views of the coded checkerboard, and finds the pose of the board in a picture (PnP). A view is read through the phase of the board's carriers rather than its corners, so every visible square counts and one view gives hundreds to thousands of sub-pixel correspondences. The code tells which square is which, so the board does not have to be fully in view.
+
+Print a board. This is an A4 sheet at 300 dpi with 5 mm squares:
+
+```bash
+./target/release/vernier render-checkerboard --output board.png \
+    --width 2480 --height 3508 --square 59 --code-size 6
+```
+
+Measure a printed square with a ruler: that is the `--square` value below, and the unit poses come out in. A view needs about `3 × (code size + 3)` squares across to read the code, which is why a small code suits a small sheet. Views where the code is not read still count towards the calibration.
+
+Calibrate a webcam (frames come through `ffmpeg`, which must be installed). Hold the board up and change its angle and place between captures; the command keeps 15 distinct views, calibrates and writes `camera.json`:
+
+```bash
+./target/release/vernier calibrate-webcam --square 5.0 --code-size 6 \
+    --video-size 1280x720 --save-frames frames
+```
+
+Or work from photos:
+
+```bash
+./target/release/vernier calibrate --square 5.0 --code-size 6 --model fisheye frames/*.png
+./target/release/vernier solve-pnp --camera camera.json --square 5.0 --code-size 6 photo.png
+./target/release/vernier undistort --camera camera.json --output straight.png photo.png
+```
+
+Follow the board live: every frame is solved and the pose is traced on a page at `http://localhost:8080/`, next to the camera picture with the board's axes drawn on it (`--csv poses.csv` also logs every pose):
+
+```bash
+./target/release/vernier track --camera camera.json --square 5.0 --code-size 6
+```
+
+A calibration only holds at the resolution it was made at. `--device` also takes a video file, which is a way to rehearse without a camera.
+
+---
+
 ## Language bindings
 
 All bindings share the same native library (`libvernier_cabi`).  Build the library once, then build whichever language wrapper you need.
@@ -175,6 +213,7 @@ See `vernier-matlab/examples/detect.m` for a full example.
 | `vernier-spectral` | Spectral detection pipeline |
 | `vernier-patterns` | Pattern rendering (periodic, megarena) |
 | `vernier-pose` | Pose estimation and LFSR absolute decode |
+| `vernier-camera` | Camera calibration and PnP from the coded checkerboard |
 | `vernier-cli` | Command-line tool |
 | `vernier-webapp` | Dioxus/WebAssembly pattern generator and spectrum explorer (own workspace) |
 | `vernier-cabi` | C ABI shared/static library |

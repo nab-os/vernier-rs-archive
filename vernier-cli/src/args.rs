@@ -14,11 +14,17 @@ pub struct TopLevel {
 #[argh(subcommand)]
 pub enum Command {
     Bench(BenchArgs),
+    Calibrate(CalibrateArgs),
+    CalibrateWebcam(CalibrateWebcamArgs),
     CheckerboardFigures(CheckerboardFiguresArgs),
     DetectMegarena(DetectMegarenaArgs),
     RenderCheckerboard(RenderCheckerboardArgs),
     RenderMegarena(RenderMegarenaArgs),
     RoundtripMegarena(RoundtripMegarenaArgs),
+    Phone(PhoneArgs),
+    SolvePnp(SolvePnpArgs),
+    Track(TrackArgs),
+    Undistort(UndistortArgs),
 }
 
 /// Time the full two-direction detection pipeline on a synthetic image.
@@ -273,4 +279,216 @@ pub struct CheckerboardFiguresArgs {
     /// number of poses used for the phase-bias measurement (default: 24)
     #[argh(option, default = "24")]
     pub poses: usize,
+}
+
+/// Calibrate a camera from photos of the coded checkerboard (as printed from
+/// render-checkerboard), taken at varied angles and places in the frame.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "calibrate")]
+pub struct CalibrateArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera model: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// where to write the calibration (default: camera.json)
+    #[argh(option, default = "String::from(\"camera.json\")")]
+    pub output: String,
+
+    /// the photos
+    #[argh(positional)]
+    pub images: Vec<String>,
+}
+
+/// Calibrate and track with a phone's camera: the phone opens a page served
+/// over HTTPS on the local network and streams its camera to it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "phone")]
+pub struct PhoneArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// calibration of the phone's camera: tracked with if the file exists,
+    /// otherwise calibrated on the page and written there
+    /// (default: phone-camera.json)
+    #[argh(option, default = "String::from(\"phone-camera.json\")")]
+    pub camera: String,
+
+    /// distinct views to calibrate from (default: 15)
+    #[argh(option, default = "15")]
+    pub views: usize,
+
+    /// camera model to calibrate: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// HTTPS port on the local network (default: 8443)
+    #[argh(option, default = "8443")]
+    pub port: u16,
+
+    /// also write every pose to this CSV file
+    #[argh(option)]
+    pub csv: Option<String>,
+}
+
+/// Calibrate a webcam live: frames are read through ffmpeg until enough
+/// distinct views of the board are in.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "calibrate-webcam")]
+pub struct CalibrateWebcamArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// camera device, or any input ffmpeg can open such as a video file
+    /// (default: /dev/video0)
+    #[argh(option, default = "String::from(\"/dev/video0\")")]
+    pub device: String,
+
+    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    #[argh(option)]
+    pub format: Option<String>,
+
+    /// capture size asked of the camera, e.g. 1280x720 (default: the camera's)
+    #[argh(option)]
+    pub video_size: Option<String>,
+
+    /// distinct views to collect (default: 15)
+    #[argh(option, default = "15")]
+    pub views: usize,
+
+    /// seconds between frames examined (default: 1.0)
+    #[argh(option, default = "1.0")]
+    pub interval: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera model: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// where to write the calibration (default: camera.json)
+    #[argh(option, default = "String::from(\"camera.json\")")]
+    pub output: String,
+
+    /// directory to save the kept frames in, to rerun with calibrate
+    #[argh(option)]
+    pub save_frames: Option<String>,
+}
+
+/// Find the pose of the board in photos taken with a calibrated camera.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "solve-pnp")]
+pub struct SolvePnpArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// side of one printed square, in the unit the pose should come out in
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// the photos
+    #[argh(positional)]
+    pub images: Vec<String>,
+}
+
+/// Resample a photo as an ideal pinhole camera would have taken it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "undistort")]
+pub struct UndistortArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// output PNG file path
+    #[argh(option)]
+    pub output: String,
+
+    /// output focal length over the calibrated one; below 1 keeps more of a
+    /// fisheye's field (default: 1.0)
+    #[argh(option, default = "1.0")]
+    pub zoom: f64,
+
+    /// the photo
+    #[argh(positional)]
+    pub image: String,
+}
+
+/// Follow the board's pose live: every frame is solved with a calibrated
+/// camera and the pose is traced on a page served on localhost.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "track")]
+pub struct TrackArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// side of one printed square, in the unit the pose should come out in
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera device, or any input ffmpeg can open such as a video file
+    /// (default: /dev/video0)
+    #[argh(option, default = "String::from(\"/dev/video0\")")]
+    pub device: String,
+
+    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    #[argh(option)]
+    pub format: Option<String>,
+
+    /// capture size asked of the camera; must match the calibration
+    /// (default: the calibration's size)
+    #[argh(option)]
+    pub video_size: Option<String>,
+
+    /// port of the page on localhost (default: 8080)
+    #[argh(option, default = "8080")]
+    pub port: u16,
+
+    /// also write every pose to this CSV file
+    #[argh(option)]
+    pub csv: Option<String>,
 }

@@ -1,0 +1,1385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vernier track</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --critical: #d03b3b;
+  --good: #0ca30c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.viz-root {
+  min-height: 100vh; padding: 16px 20px; background: var(--page); color: var(--text-primary);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; }
+h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+#status { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.controls { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+button, select, a.button {
+  font: inherit; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; text-decoration: none;
+}
+button[aria-pressed="true"] { font-weight: 600; border-color: var(--text-secondary); }
+main { display: grid; grid-template-columns: minmax(320px, 1.2fr) minmax(420px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+.left { display: grid; gap: 8px; }
+main > *, .left > *, .charts > *, .diag > * { min-width: 0; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.toolbar .group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.toolbar .label { color: var(--text-secondary); margin-right: 2px; }
+.toolbar label { display: inline-flex; gap: 3px; align-items: center; color: var(--text-primary); white-space: nowrap; }
+.video { position: relative; line-height: 0; padding: 0; overflow: hidden; background: #000; }
+.video .scroller { overflow: hidden; }
+.video .stage { position: relative; }
+.video.zoomed .scroller { overflow: auto; max-height: 75vh; }
+.video.zoomed .stage { width: 300%; }
+.wheel { display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+  background: conic-gradient(from 90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); vertical-align: middle; }
+.video img, .video canvas { width: 100%; height: auto; display: block; }
+.video canvas { position: absolute; inset: 0; height: 100%; cursor: crosshair; }
+.video .note { position: absolute; left: 10px; bottom: 10px; line-height: 1.4; color: #fff;
+  background: rgba(0,0,0,0.7); padding: 2px 8px; border-radius: 4px; max-width: calc(100% - 20px); }
+.video .note.top { bottom: auto; top: 10px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; color: var(--text-secondary); font-size: 13px; }
+.legend .item { display: inline-flex; align-items: center; gap: 5px; }
+.legend svg { display: block; }
+.ramp { display: inline-block; width: 120px; height: 10px; border-radius: 2px; vertical-align: middle; }
+#probe { font-variant-numeric: tabular-nums; font-size: 13px; min-height: 2.8em; color: var(--text-secondary); }
+#probe b { color: var(--text-primary); font-weight: 500; }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.group-title { color: var(--text-secondary); font-size: 13px; margin: 0 0 -4px; }
+.group-title.wide { grid-column: span 2; margin-top: 6px; }
+.chart .head { display: flex; align-items: baseline; justify-content: space-between; }
+.chart .name { color: var(--text-secondary); }
+.chart .value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart canvas { width: 100%; height: 110px; display: block; margin-top: 4px; }
+.diag { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 16px; }
+.diag .wide { grid-column: 1 / -1; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 500; }
+tr.chosen td { font-weight: 600; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.kv dt { color: var(--text-secondary); }
+.kv dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.bars { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.bars .name { color: var(--text-secondary); }
+.bars .track { height: 10px; }
+.bars .fill { height: 10px; border-radius: 0 4px 4px 0; background: var(--series-1); min-width: 1px; }
+.bars .num { text-align: right; }
+.small-chart { position: relative; }
+.small-chart canvas { width: 100%; height: 150px; display: block; }
+.tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 6px; font-size: 12px; white-space: nowrap; display: none; }
+.muted { color: var(--muted); }
+.bad { color: var(--critical); }
+.mono { font-family: ui-monospace, monospace; font-size: 12px; }
+#table { margin-top: 16px; display: none; overflow-x: auto; }
+.phone-row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.progress { height: 10px; background: var(--grid); border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+.progress div { height: 100%; width: 0; background: var(--series-1); border-radius: 0 4px 4px 0; transition: width 0.3s; }
+#cal-message { font-size: 13px; color: var(--text-secondary); min-height: 1.4em; }
+#phone button.primary { font-weight: 600; border-color: var(--text-secondary); }
+@media (max-width: 600px) {
+  .viz-root { padding: 8px; }
+  .charts, .diag { grid-template-columns: 1fr; }
+  .group-title.wide { grid-column: span 1; }
+  .controls { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <header>
+    <h1>Board pose</h1>
+    <span id="status">waiting for frames</span>
+    <div class="controls">
+      <div role="group" aria-label="Time window">
+        <button data-window="10">10 s</button>
+        <button data-window="30" aria-pressed="true">30 s</button>
+        <button data-window="120">2 min</button>
+      </div>
+      <button id="pause" aria-pressed="false" title="Hold the current frame and its debug data (space)">Pause</button>
+      <button id="table-toggle" aria-pressed="false">Table</button>
+      <a class="button" id="json-link" download title="Everything measured on the frame shown">Debug JSON</a>
+      <a class="button" id="png-link" download title="The frame shown, lossless, to measure again offline">Frame PNG</a>
+    </div>
+  </header>
+  <main>
+    <div class="left">
+      <div class="card" id="phone" hidden>
+        <div class="phone-row">
+          <button id="cam-start" class="primary">Start camera</button>
+          <label>resolution <select id="cam-res">
+            <option value="1280x720">1280 × 720</option>
+            <option value="1920x1080">1920 × 1080</option>
+            <option value="640x480">640 × 480</option>
+          </select></label>
+          <button id="cam-focus" hidden title="Autofocus changes the focal length; lock it once the board is sharp">Lock focus</button>
+          <button id="cal-again" title="Collect views and calibrate this phone's camera again">Calibrate again</button>
+        </div>
+        <div id="cam-status" class="muted" style="margin-top:6px">camera off</div>
+        <div id="cal" hidden>
+          <div class="phone-row" style="margin-top:8px"><b>Calibration</b><span id="cal-count"></span></div>
+          <div class="progress"><div id="cal-bar"></div></div>
+          <div id="cal-message"></div>
+          <dl class="kv" id="cal-result"></dl>
+        </div>
+        <video id="cam-video" playsinline muted hidden></video>
+      </div>
+      <div class="card toolbar">
+        <div class="group" role="group" aria-label="Image">
+          <span class="label">Image</span>
+          <button data-mode="frame" aria-pressed="true" title="The camera frame">Frame</button>
+          <button data-mode="spectrum" title="Log magnitude of the frame's spectrum, zero frequency at the centre">Spectrum</button>
+          <button data-mode="phase1" title="Phase of carrier 1 from the fine nodes, one hue turn per carrier period">Phase 1</button>
+          <button data-mode="phase2" title="Phase of carrier 2">Phase 2</button>
+          <button data-mode="squares" title="Pattern square under each pixel after the code: hue along i, brightness along j">Squares</button>
+          <button data-mode="restored" title="The frame with the coding squares painted back to a plain checkerboard">Restored</button>
+          <button data-mode="field1" title="Demodulated field of carrier 1: phase as hue, carrier amplitude as brightness; zoom in to see the hue cycle once per stripe">Field 1</button>
+          <button data-mode="field2" title="Demodulated field of carrier 2">Field 2</button>
+          <button data-mode="slow1" title="Field of carrier 1 less its one global frequency: what is left is the geometry of the view">Slow 1</button>
+          <button data-mode="slow2" title="Field of carrier 2 less its one global frequency">Slow 2</button>
+          <button data-mode="lines" title="The field's unwrapped phases placed by the code, as lines of constant square coordinate; they should fall on the square edges">Lines</button>
+          <button id="zoom" aria-pressed="false" title="Show the image at three times the width, to scroll around in">Zoom</button>
+        </div>
+        <div class="group" role="group" aria-label="Layers">
+          <span class="label">Layers</span>
+          <label><input type="checkbox" data-layer="axes" checked>axes</label>
+          <label><input type="checkbox" data-layer="grid">board grid</label>
+          <label><input type="checkbox" data-layer="points" checked>points</label>
+          <label><input type="checkbox" data-layer="vectors">residuals</label>
+          <label><input type="checkbox" data-layer="outliers" checked>outliers</label>
+          <label><input type="checkbox" data-layer="dropped">dropped</label>
+          <label><input type="checkbox" data-layer="coarse">coarse walk</label>
+          <label><input type="checkbox" data-layer="peaks" checked>peaks</label>
+          <label><input type="checkbox" data-layer="coverage" checked>kept views</label>
+        </div>
+        <div class="group">
+          <label>colour points by
+            <select id="colour-by">
+              <option value="residual">residual</option>
+              <option value="quality">carrier quality</option>
+              <option value="offset">window offset</option>
+            </select>
+          </label>
+          <label title="Residual arrows are drawn this many times their length">arrows ×<input type="range" id="gain" min="1" max="200" value="50" style="width:90px"><span id="gain-value">50</span></label>
+        </div>
+      </div>
+      <div class="card video">
+        <div class="scroller"><div class="stage">
+          <img id="frame" alt="Latest camera frame">
+          <canvas id="overlay" aria-label="Measurement overlay"></canvas>
+        </div></div>
+        <div class="note top" id="mode-note" hidden></div>
+        <div class="note" id="note" hidden></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="card" id="probe">Hover the image to read a pixel: intensity, phases, pattern square, and the nearest measured point.</div>
+    </div>
+    <div class="charts" id="charts">
+      <p class="group-title">Board origin in the camera frame (mm)</p>
+      <p class="group-title">Board rotation, rotz(α)·roty(β)·rotx(γ) (deg)</p>
+    </div>
+  </main>
+  <section class="diag">
+    <div class="card"><h2>Frame</h2><dl class="kv" id="frame-info"></dl></div>
+    <div class="card"><h2>Time per stage (ms)</h2><div class="bars" id="timings"></div></div>
+    <div class="card"><h2>Fine points through the stages</h2><div class="bars" id="funnel"></div></div>
+    <div class="card"><h2>Code</h2><dl class="kv" id="code"></dl></div>
+    <div class="card"><h2>Fit</h2><dl class="kv" id="fit"></dl></div>
+    <div class="card">
+      <h2>Residual length (px), kept points</h2>
+      <div class="small-chart"><canvas id="histogram" role="img" aria-label="Histogram of residual lengths"></canvas><div class="tip"></div></div>
+    </div>
+    <div class="card">
+      <h2>Residuals, x against y (px)</h2>
+      <div class="small-chart"><canvas id="scatter" role="img" aria-label="Residual vectors as points" style="height:220px"></canvas><div class="tip"></div></div>
+    </div>
+    <div class="card"><h2>Camera</h2><dl class="kv" id="camera"></dl></div>
+    <div class="card wide"><h2>Carrier pairs followed</h2><div id="attempts"></div></div>
+    <div class="card"><h2>Spectral peaks</h2><div id="peaks"></div></div>
+    <div class="card"><h2>Why frames gave no pose</h2><div id="failures"></div></div>
+  </section>
+  <div class="card" id="table"></div>
+</div>
+<script>
+// ---------- helpers ----------
+const $ = (id) => document.getElementById(id);
+const root = document.querySelector(".viz-root");
+/** A CSS custom property of the page, such as a palette colour for a canvas. */
+const cssVar = (name) => getComputedStyle(root).getPropertyValue(name).trim();
+const TAU = 2 * Math.PI;
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+/** A number with `digits` decimals, or a dash when there is none. */
+const fixed = (v, digits = 3) => Number.isFinite(v) ? v.toFixed(digits) : "–";
+/** A number in scientific notation, or a dash when there is none. */
+const scientific = (v) => Number.isFinite(v) ? v.toExponential(2) : "–";
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/** The item of `items` closest by `distance`, if any is closer than `limit`. */
+function nearest(items, distance, limit = Infinity) {
+  let best = null, bestDistance = limit;
+  for (const item of items) {
+    const d = distance(item);
+    if (d < bestDistance) { bestDistance = d; best = item; }
+  }
+  return { item: best, distance: bestDistance };
+}
+
+/**
+ * The server sends each point as a flat array to keep the JSON small:
+ * pixel x, y, board x, y, carrier quality, window offset, residual x, y (null
+ * without a fit) and whether the fit kept it.
+ */
+function unpackPoint(p) {
+  return { x: p[0], y: p[1], boardX: p[2], boardY: p[3], quality: p[4], offset: p[5], rx: p[6], ry: p[7], kept: p[8] };
+}
+const hasResidual = (p) => Number.isFinite(p.rx);
+const keptCount = (d) => d.points.filter((p) => p.kept).length;
+
+/** Clears a canvas and sizes it for the screen's pixel density; returns its context and size in CSS pixels. */
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.font = "11px system-ui, sans-serif";
+  return { g, w, h };
+}
+
+/** A round step, 1, 2 or 5 times a power of ten, giving about `count` steps over `span`. */
+function niceStep(span, count) {
+  const raw = span / count, power = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 5, 10]) if (m * power >= raw) return m * power;
+  return 10 * power;
+}
+/** Decimals enough to tell apart labels `step` apart. */
+const decimalsFor = (step) => Math.max(0, -Math.floor(Math.log10(step)));
+
+// ---------- time series ----------
+// One chart per entry, in a two-column grid; `title` entries start a group.
+// `always` plots the value on frames without a pose too; `floor` keeps that
+// value in the range, usually zero.
+const SERIES = [
+  { key: "x", name: "x", unit: "mm", color: "--series-1", digits: 3 },
+  { key: "alpha", name: "α, about z", unit: "°", color: "--series-2", digits: 3 },
+  { key: "y", name: "y", unit: "mm", color: "--series-1", digits: 3 },
+  { key: "beta", name: "β, about y", unit: "°", color: "--series-2", digits: 3 },
+  { key: "z", name: "z (distance)", unit: "mm", color: "--series-1", digits: 3 },
+  { key: "gamma", name: "γ, about x", unit: "°", color: "--series-2", digits: 3 },
+  { title: "Measurement health" },
+  { key: "rms", name: "reprojection rms", unit: "px", color: "--series-1", digits: 3, floor: 0 },
+  { key: "points", name: "points used", unit: "", color: "--series-1", digits: 0, floor: 0 },
+  { key: "ms", name: "time per frame", unit: "ms", color: "--series-1", digits: 0, floor: 0, always: true },
+  { key: "skipped", name: "frames skipped (camera faster than us)", unit: "", color: "--series-1", digits: 0, floor: 0, always: true },
+  { key: "bits", name: "code bit errors", unit: "", color: "--series-1", digits: 0, floor: 0 },
+  { key: "period", name: "carrier period", unit: "px", color: "--series-1", digits: 2, always: true },
+];
+/** Every frame event received, oldest first. */
+const samples = [];
+let windowSeconds = 30;
+/** The time the pointer is over on any chart, shown on all of them. */
+let hoverTime = null;
+
+const charts = [];
+for (const series of SERIES) {
+  if (series.title) {
+    const p = document.createElement("p");
+    p.className = "group-title wide";
+    p.textContent = series.title;
+    $("charts").appendChild(p);
+    continue;
+  }
+  const card = document.createElement("div");
+  card.className = "card chart";
+  card.innerHTML = `<div class="head"><span class="name">${series.name}</span><span class="value">-</span></div><canvas role="img" aria-label="${series.name} over time"></canvas>`;
+  $("charts").appendChild(card);
+  const canvas = card.querySelector("canvas");
+  canvas.addEventListener("mousemove", (e) => {
+    const r = canvas.getBoundingClientRect();
+    hoverTime = timeAt(e.clientX - r.left, r.width);
+    drawAllCharts();
+  });
+  canvas.addEventListener("mouseleave", () => { hoverTime = null; drawAllCharts(); });
+  charts.push({ series, canvas, valueLabel: card.querySelector(".value") });
+}
+
+const CHART_PADDING = { left: 52, right: 8, top: 6, bottom: 18 };
+/** Samples further apart than this, in seconds, are not joined: frames stopped coming. */
+const MAX_GAP_SECONDS = 1.5;
+
+function latestTime() { return samples.length ? samples[samples.length - 1].t : 0; }
+/** The time under a horizontal position on a chart, or null off the plot. */
+function timeAt(px, width) {
+  const end = latestTime(), start = end - windowSeconds;
+  const f = (px - CHART_PADDING.left) / (width - CHART_PADDING.left - CHART_PADDING.right);
+  return f < 0 || f > 1 ? null : start + f * windowSeconds;
+}
+/** Whether a sample has a value to plot: unless the series is `always`, only frames with a pose do. */
+const hasValue = (sample, series) => (series.always || sample.ok) && Number.isFinite(sample[series.key]);
+
+/**
+ * The value range of a chart: the values' own, at least `minSpan` wide so
+ * noise does not fill the chart, padded a little, and down to the series'
+ * floor if it has one.
+ */
+function valueRange(values, series) {
+  let lo = Math.min(...values), hi = Math.max(...values);
+  if (series.floor !== undefined) lo = Math.min(lo, series.floor);
+  const minSpan = series.unit === "mm" ? 0.05 : series.digits === 0 ? 2 : 0.01;
+  if (hi - lo < minSpan) {
+    const centre = (hi + lo) / 2;
+    lo = series.floor === undefined ? centre - minSpan / 2 : lo;
+    hi = lo + minSpan;
+  }
+  const margin = (hi - lo) * 0.08;
+  if (series.floor === undefined) lo -= margin;
+  hi += margin;
+  return [lo, hi];
+}
+
+function drawTimeChart({ series, canvas, valueLabel }) {
+  const { g, w, h } = setupCanvas(canvas);
+  const end = latestTime(), start = end - windowSeconds;
+  const inWindow = samples.filter((p) => p.t >= start);
+  const plotted = inWindow.filter((p) => hasValue(p, series));
+  const last = samples.filter((p) => hasValue(p, series)).pop();
+  valueLabel.textContent = last ? `${last[series.key].toFixed(series.digits)} ${series.unit}` : "-";
+  if (!plotted.length) return;
+  const [lo, hi] = valueRange(plotted.map((p) => p[series.key]), series);
+  const P = CHART_PADDING;
+  const X = (t) => P.left + (t - start) / windowSeconds * (w - P.left - P.right);
+  const Y = (v) => P.top + (hi - v) / (hi - lo) * (h - P.top - P.bottom);
+
+  drawChartAxes(g, w, h, { lo, hi, start, end, X, Y });
+  // Frames without a pose are ticked along the bottom.
+  if (!series.always) {
+    g.fillStyle = cssVar("--critical");
+    for (const p of inWindow) if (!p.ok) g.fillRect(Math.round(X(p.t)), h - P.bottom - 3, 1, 3);
+  }
+  drawSeriesLine(g, inWindow, series, X, Y);
+  // A line needs a few points to be seen; until then, dots.
+  if (plotted.length < 3) {
+    g.fillStyle = cssVar(series.color);
+    for (const p of plotted) { g.beginPath(); g.arc(X(p.t), Y(p[series.key]), 4, 0, TAU); g.fill(); }
+  }
+  if (hoverTime !== null) drawHoverReadout(g, w, h, plotted, series, X, Y);
+}
+
+/** Horizontal grid lines with value labels, time labels, and the time axis. */
+function drawChartAxes(g, w, h, { lo, hi, start, end, X, Y }) {
+  const P = CHART_PADDING;
+  g.fillStyle = cssVar("--muted");
+  g.strokeStyle = cssVar("--grid");
+  g.lineWidth = 1;
+  const step = niceStep(hi - lo, 3);
+  const decimals = decimalsFor(step);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    // Half-pixel offsets keep one-pixel lines sharp.
+    const y = Math.round(Y(v)) + 0.5;
+    g.beginPath(); g.moveTo(P.left, y); g.lineTo(w - P.right, y); g.stroke();
+    g.fillText(v.toFixed(decimals), P.left - 6, y);
+  }
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  const timeStep = niceStep(windowSeconds, 4);
+  for (let t = Math.ceil(start / timeStep) * timeStep; t <= end; t += timeStep) {
+    if (t >= 0) g.fillText(`${Math.round(t)} s`, X(t), h - 4);
+  }
+  g.strokeStyle = cssVar("--axis");
+  g.beginPath(); g.moveTo(P.left, h - P.bottom + 0.5); g.lineTo(w - P.right, h - P.bottom + 0.5); g.stroke();
+}
+
+/** The series as a line, broken where a frame gave no value or frames stopped coming. */
+function drawSeriesLine(g, inWindow, series, X, Y) {
+  g.strokeStyle = cssVar(series.color);
+  g.lineWidth = 2; g.lineJoin = "round"; g.lineCap = "round";
+  g.beginPath();
+  let penDown = false, previous = null;
+  for (const p of inWindow) {
+    const ok = hasValue(p, series);
+    if (!ok || (previous && p.t - previous.t > MAX_GAP_SECONDS)) {
+      penDown = false;
+      previous = ok ? p : null;
+      if (!ok) continue;
+    }
+    const x = X(p.t), y = Y(p[series.key]);
+    if (penDown) g.lineTo(x, y); else { g.moveTo(x, y); penDown = true; }
+    previous = p;
+  }
+  g.stroke();
+}
+
+/** A cursor at the sample nearest the hovered time, with its value in a box at the top. */
+function drawHoverReadout(g, w, h, plotted, series, X, Y) {
+  const P = CHART_PADDING;
+  const { item: near } = nearest(plotted, (p) => Math.abs(p.t - hoverTime));
+  if (!near) return;
+  const x = X(near.t), y = Y(near[series.key]);
+  g.strokeStyle = cssVar("--axis"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(Math.round(x) + 0.5, P.top); g.lineTo(Math.round(x) + 0.5, h - P.bottom); g.stroke();
+  g.fillStyle = cssVar(series.color); g.strokeStyle = cssVar("--surface-1"); g.lineWidth = 2;
+  g.beginPath(); g.arc(x, y, 4, 0, TAU); g.fill(); g.stroke();
+  const text = `${near[series.key].toFixed(series.digits)} ${series.unit} at ${near.t.toFixed(1)} s, frame ${near.frame}`;
+  g.font = "12px system-ui, sans-serif";
+  const boxWidth = g.measureText(text).width + 12;
+  // Centred on the cursor, but kept inside the plot.
+  const boxLeft = Math.min(Math.max(x - boxWidth / 2, P.left), w - P.right - boxWidth);
+  g.fillStyle = cssVar("--surface-1"); g.strokeStyle = cssVar("--border"); g.lineWidth = 1;
+  g.beginPath(); g.roundRect(boxLeft, P.top, boxWidth, 20, 4); g.fill(); g.stroke();
+  g.fillStyle = cssVar("--text-primary"); g.textAlign = "left"; g.textBaseline = "middle";
+  g.fillText(text, boxLeft + 6, P.top + 10);
+}
+
+function drawAllCharts() { charts.forEach(drawTimeChart); }
+
+/** The last 30 frames, newest first, when the table is open. */
+function drawTable() {
+  const box = $("table");
+  if (box.style.display !== "block") return;
+  const rows = samples.slice(-30).reverse();
+  const note = (p) => p.ok ? (p.from_previous ? "carriers reused" : "spectrum searched") : escapeHtml(p.reason);
+  box.innerHTML = `<table><thead><tr><th>frame</th><th>t (s)</th><th>x (mm)</th><th>y (mm)</th><th>z (mm)</th><th>α (°)</th><th>β (°)</th><th>γ (°)</th><th>rms (px)</th><th>median (px)</th><th>points</th><th>rejected</th><th>ms</th><th>skipped</th><th>note</th></tr></thead><tbody>` +
+    rows.map((p) => `<tr><td>${p.frame}</td><td>${p.t.toFixed(2)}</td><td>${fixed(p.x)}</td><td>${fixed(p.y)}</td><td>${fixed(p.z)}</td><td>${fixed(p.alpha)}</td><td>${fixed(p.beta)}</td><td>${fixed(p.gamma)}</td><td>${fixed(p.rms)}</td><td>${fixed(p.median)}</td><td>${p.ok ? p.points : "–"}</td><td>${p.ok ? p.rejected : "–"}</td><td>${fixed(p.ms, 0)}</td><td>${p.skipped}</td><td style="text-align:left">${note(p)}</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+// ---------- colour ----------
+/** A sequential blue ramp, light to dark. */
+const RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+/** The ramp's colour at `f`, from 0 to 1, interpolated between its stops. */
+function ramp(f) {
+  const position = Math.min(1, Math.max(0, f)) * (RAMP.length - 1);
+  const i = Math.min(RAMP.length - 2, Math.floor(position)), u = position - i;
+  const channel = (hex, k) => parseInt(hex.slice(1 + 2 * k, 3 + 2 * k), 16);
+  const [a, b] = [RAMP[i], RAMP[i + 1]];
+  return `rgb(${[0, 1, 2].map((k) => Math.round(channel(a, k) + (channel(b, k) - channel(a, k)) * u)).join(",")})`;
+}
+/** What the points can be coloured by; `domain` maps to the ends of the ramp, reversed when worse is lower. */
+const METRICS = {
+  residual: { label: "residual length", unit: "px", domain: (d) => [0, Math.max(0.05, 2 * (d.median || 0.05))],
+    value: (p) => Math.hypot(p.rx, p.ry) },
+  quality: { label: "carrier quality (low is worse)", unit: "", domain: () => [0.5, 0.15], value: (p) => p.quality },
+  offset: { label: "window offset", unit: "σ", domain: () => [0, 0.2], value: (p) => p.offset },
+};
+// Dropped stages: categorical slots in fixed order, each with its own shape.
+const DROPS = [
+  { stage: "first pass", color: "--series-1", shape: "square", text: "lost at first pass (quality or phase jump)" },
+  { stage: "refit", color: "--series-2", shape: "triangle", text: "lost after restore/refit" },
+  { stage: "offset", color: "--series-3", shape: "diamond", text: "window leaned off centre" },
+  { stage: "edge", color: "--series-4", shape: "circle", text: "too near the board's edge" },
+];
+
+// ---------- overlay ----------
+/** Which overlay layers are on, by their checkbox's `data-layer`. */
+const layers = {};
+document.querySelectorAll("[data-layer]").forEach((box) => {
+  layers[box.dataset.layer] = box.checked;
+  box.addEventListener("change", () => { layers[box.dataset.layer] = box.checked; renderOverlay(); renderLegend(); });
+});
+/** The image shown, one of the `data-mode` buttons. */
+let mode = "frame";
+/** The debug data of the frame shown, its points unpacked. */
+let shown = null;
+/** The frame pixel under the pointer, outlined on the overlay. */
+let hoverPixel = null;
+$("colour-by").addEventListener("change", () => { renderOverlay(); renderLegend(); });
+$("gain").addEventListener("input", () => { $("gain-value").textContent = $("gain").value; renderOverlay(); });
+
+/** Points are at pixel indices; the centre of a pixel on the canvas is half a pixel further. */
+const PIXEL_CENTRE = 0.5;
+
+/** Starts a path of one of the marker shapes, centred on `x, y`. */
+function shapePath(g, kind, x, y, r) {
+  g.beginPath();
+  if (kind === "square") g.rect(x - r, y - r, 2 * r, 2 * r);
+  else if (kind === "triangle") { g.moveTo(x, y - r * 1.2); g.lineTo(x + r * 1.1, y + r * 0.8); g.lineTo(x - r * 1.1, y + r * 0.8); g.closePath(); }
+  else if (kind === "diamond") { g.moveTo(x, y - r * 1.3); g.lineTo(x + r * 1.3, y); g.lineTo(x, y + r * 1.3); g.lineTo(x - r * 1.3, y); g.closePath(); }
+  else g.arc(x, y, r, 0, TAU);
+}
+/** Starts a path of an ✕ centred on `x, y`. */
+function crossPath(g, x, y, r) { g.beginPath(); g.moveTo(x - r, y - r); g.lineTo(x + r, y + r); g.moveTo(x + r, y - r); g.lineTo(x - r, y + r); }
+
+/** Draws the layers that are on over the image, in frame pixels. */
+function renderOverlay() {
+  const canvas = $("overlay");
+  const g = canvas.getContext("2d");
+  const d = shown;
+  if (!d) return;
+  if (canvas.width !== d.width || canvas.height !== d.height) { canvas.width = d.width; canvas.height = d.height; }
+  g.clearRect(0, 0, d.width, d.height);
+  // Marks are sized for a 640-pixel-wide frame and scale with it.
+  const unit = d.width / 640;
+  if (mode === "spectrum") { if (layers.peaks) drawSpectrumPeaks(g, d, unit); return; }
+  if (layers.coverage && d.coverage) drawCoverage(g, d.coverage, unit);
+  if (layers.coarse && d.coarse) drawCoarseWalk(g, d, unit);
+  if (layers.grid && d.grid) drawBoardGrid(g, d.grid, unit);
+  if (layers.dropped && d.dropped) drawDropped(g, d.dropped, unit);
+  if (layers.points) drawPoints(g, d, unit);
+  if (layers.vectors) drawResidualArrows(g, d.points, unit);
+  if (layers.outliers) drawOutliers(g, d.points, unit);
+  if (layers.axes && d.ok && d.axes && d.axes.length === 4) drawAxes(g, d.axes, unit);
+  if (hoverPixel) {
+    const c = PIXEL_CENTRE;
+    g.strokeStyle = "rgba(255,255,255,0.8)"; g.lineWidth = unit;
+    g.strokeRect(hoverPixel.x - 4 * unit + c, hoverPixel.y - 4 * unit + c, 8 * unit, 8 * unit);
+  }
+}
+
+/** The points of the views kept for calibration, to show where the frame is still bare. */
+function drawCoverage(g, coverage, unit) {
+  const c = PIXEL_CENTRE, r = 1.6 * unit;
+  g.fillStyle = cssVar("--series-3"); g.globalAlpha = 0.55;
+  for (const view of coverage) for (const [x, y] of view) g.fillRect(x + c - r, y + c - r, 2 * r, 2 * r);
+  g.globalAlpha = 1;
+}
+
+/** The coarse nodes the walk reached, shaded by quality, those it refused, and its seed. */
+function drawCoarseWalk(g, d, unit) {
+  const c = PIXEL_CENTRE, r = 2.5 * unit;
+  for (const [x, y, quality] of d.coarse) {
+    g.fillStyle = ramp((quality - 0.15) / 0.35); g.strokeStyle = "rgba(0,0,0,0.8)"; g.lineWidth = unit;
+    g.fillRect(x + c - r, y + c - r, 2 * r, 2 * r); g.strokeRect(x + c - r, y + c - r, 2 * r, 2 * r);
+  }
+  g.strokeStyle = cssVar("--muted"); g.lineWidth = 1.2 * unit;
+  for (const [x, y] of d.refused || []) { crossPath(g, x + c, y + c, 2.5 * unit); g.stroke(); }
+  if (d.seed) {
+    const [x, y] = d.seed;
+    // A white ring under the coloured one, to stand out on any background.
+    g.strokeStyle = "#fff"; g.lineWidth = 3 * unit; g.beginPath(); g.arc(x + c, y + c, 9 * unit, 0, TAU); g.stroke();
+    g.strokeStyle = cssVar("--series-5"); g.lineWidth = 1.8 * unit; g.beginPath(); g.arc(x + c, y + c, 9 * unit, 0, TAU); g.stroke();
+  }
+}
+
+/** The board's square edges through the fitted pose, light over a dark casing. */
+function drawBoardGrid(g, grid, unit) {
+  const c = PIXEL_CENTRE;
+  for (const [color, width] of [["rgba(0,0,0,0.6)", 2.2 * unit], ["rgba(255,255,255,0.85)", 0.9 * unit]]) {
+    g.strokeStyle = color; g.lineWidth = width;
+    for (const line of grid) {
+      g.beginPath(); line.forEach(([x, y], i) => (i ? g.lineTo(x + c, y + c) : g.moveTo(x + c, y + c))); g.stroke();
+    }
+  }
+}
+
+/** Fine nodes dropped, each stage with its colour and shape. */
+function drawDropped(g, dropped, unit) {
+  const c = PIXEL_CENTRE, r = 2.2 * unit;
+  for (const [x, y, stage] of dropped) {
+    const kind = DROPS.find((k) => k.stage === stage) || DROPS[0];
+    g.fillStyle = cssVar(kind.color); g.strokeStyle = "rgba(0,0,0,0.8)"; g.lineWidth = 0.8 * unit;
+    shapePath(g, kind.shape, x + c, y + c, r); g.fill(); g.stroke();
+  }
+}
+
+/** The points the fit kept, coloured by the metric picked. */
+function drawPoints(g, d, unit) {
+  const c = PIXEL_CENTRE;
+  const metric = METRICS[$("colour-by").value];
+  const [a, b] = metric.domain(d);
+  const r = Math.max(1.6 * unit, 2);
+  g.strokeStyle = "rgba(0,0,0,0.75)"; g.lineWidth = 0.7 * unit;
+  for (const p of d.points) {
+    if (!p.kept) continue;
+    const v = metric.value(p);
+    g.fillStyle = Number.isFinite(v) ? ramp((v - a) / (b - a)) : "#888";
+    g.beginPath(); g.arc(p.x + c, p.y + c, r, 0, TAU); g.fill(); g.stroke();
+  }
+}
+
+/** Each residual as an arrow from its point, magnified by the gain slider. */
+function drawResidualArrows(g, points, unit) {
+  const c = PIXEL_CENTRE;
+  const gain = Number($("gain").value);
+  for (const [color, width] of [["rgba(0,0,0,0.7)", 2.4 * unit], [cssVar("--series-2"), 1.2 * unit]]) {
+    g.strokeStyle = color; g.lineWidth = width; g.beginPath();
+    for (const p of points) {
+      if (!hasResidual(p)) continue;
+      g.moveTo(p.x + c, p.y + c); g.lineTo(p.x + c + gain * p.rx, p.y + c + gain * p.ry);
+    }
+    g.stroke();
+  }
+}
+
+/** A red ✕ on white at each point the fit rejected. */
+function drawOutliers(g, points, unit) {
+  const c = PIXEL_CENTRE;
+  g.lineWidth = 1.8 * unit;
+  for (const p of points) {
+    if (p.kept) continue;
+    g.strokeStyle = "#fff"; crossPath(g, p.x + c, p.y + c, 4 * unit); g.lineWidth = 3.2 * unit; g.stroke();
+    g.strokeStyle = cssVar("--critical"); g.lineWidth = 1.8 * unit; g.stroke();
+  }
+}
+
+/** The board's axes from its origin, labelled; `axes` is the origin and the three ends, in pixels. */
+function drawAxes(g, axes, unit) {
+  const [origin, ...ends] = axes;
+  const colors = ["--series-2", "--series-3", "--series-1"];
+  ends.forEach((end, i) => {
+    g.lineCap = "round";
+    g.strokeStyle = "rgba(0,0,0,0.7)"; g.lineWidth = 6 * unit;
+    g.beginPath(); g.moveTo(origin[0], origin[1]); g.lineTo(end[0], end[1]); g.stroke();
+    g.strokeStyle = cssVar(colors[i]); g.lineWidth = 3.5 * unit; g.stroke();
+    g.font = `600 ${16 * unit}px system-ui, sans-serif`;
+    g.lineWidth = 3 * unit; g.strokeStyle = "#000"; g.fillStyle = "#fff";
+    g.strokeText("xyz"[i], end[0] + 6 * unit, end[1] - 6 * unit); g.fillText("xyz"[i], end[0] + 6 * unit, end[1] - 6 * unit);
+  });
+}
+
+/**
+ * On the spectrum: the peaks of the search, sized by score, and the carriers
+ * each attempt followed, boxed. Each shows twice, at k and -k, as the
+ * spectrum of a real image is symmetric.
+ */
+function drawSpectrumPeaks(g, d, unit) {
+  // The spectrum image has zero frequency at its centre and spans one turn
+  // per pixel each way, so frequency k (rad/px) is k / TAU of the width from it.
+  const toPixel = (k) => [d.width / 2 + k[0] * d.width / TAU + 0.5, d.height / 2 + k[1] * d.height / TAU + 0.5];
+  // Peaks of the search the spectrum image came from, maybe an earlier frame.
+  const peaks = (d.spectrum_search && d.spectrum_search.peaks) || [];
+  const topScore = Math.max(1e-9, ...peaks.map((p) => p.score));
+  for (const peak of peaks) {
+    for (const sign of [1, -1]) {
+      const [x, y] = toPixel([sign * peak.k[0], sign * peak.k[1]]);
+      g.strokeStyle = cssVar("--series-4"); g.lineWidth = 1.5 * unit;
+      g.setLineDash(peak.lifted ? [3 * unit, 3 * unit] : []);
+      g.beginPath(); g.arc(x, y, (4 + 8 * peak.score / topScore) * unit, 0, TAU); g.stroke();
+    }
+  }
+  g.setLineDash([]);
+  (d.attempts || []).forEach((attempt, i) => {
+    const chosen = i === d.chosen;
+    attempt.carriers.forEach((carrier, n) => {
+      for (const sign of [1, -1]) {
+        const [x, y] = toPixel([sign * carrier.k[0], sign * carrier.k[1]]);
+        g.strokeStyle = chosen ? cssVar("--series-3") : cssVar("--muted"); g.lineWidth = (chosen ? 2.5 : 1.2) * unit;
+        g.strokeRect(x - 10 * unit, y - 10 * unit, 20 * unit, 20 * unit);
+        if (sign > 0) {
+          g.font = `600 ${12 * unit}px system-ui, sans-serif`; g.fillStyle = "#fff"; g.strokeStyle = "#000"; g.lineWidth = 3 * unit;
+          const label = `#${i + 1} k${n + 1}`;
+          g.strokeText(label, x + 12 * unit, y - 12 * unit); g.fillText(label, x + 12 * unit, y - 12 * unit);
+        }
+      }
+    });
+  });
+}
+
+// ---------- legend ----------
+const FIELD_MODES = ["field1", "field2", "slow1", "slow2"];
+/** Field amplitude drawn at full brightness, as on the server. */
+const FULL_AMPLITUDE = 0.45;
+function legendSwatch(svg) { return `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">${svg}</svg>`; }
+/** Explains the colours of the image shown and of the layers that are on. */
+function renderLegend() {
+  const items = [];
+  const addItem = (svg, text) => items.push(`<span class="item">${legendSwatch(svg)}${text}</span>`);
+  if (FIELD_MODES.includes(mode)) {
+    items.push(`<span class="item"><span class="wheel" aria-hidden="true"></span>hue: phase${mode.startsWith("slow") ? " less the global carrier" : ""}, once round per turn · brightness: carrier amplitude (black: no carrier, full at ${FULL_AMPLITUDE})</span>`);
+  }
+  if (mode === "lines") {
+    addItem(`<line x1="1" y1="7" x2="13" y2="7" stroke="#eb6834" stroke-width="2"/>`, "constant first square coordinate");
+    addItem(`<line x1="7" y1="1" x2="7" y2="13" stroke="#2a78d6" stroke-width="2"/>`, "constant second square coordinate");
+  }
+  if (mode === "spectrum") {
+    if (layers.peaks) {
+      addItem(`<circle cx="7" cy="7" r="5" fill="none" stroke="${cssVar("--series-4")}" stroke-width="1.5"/>`, "peak, larger is more prominent");
+      addItem(`<circle cx="7" cy="7" r="5" fill="none" stroke="${cssVar("--series-4")}" stroke-width="1.5" stroke-dasharray="2 2"/>`, "code's line at a third, lifted ×3");
+      addItem(`<rect x="2" y="2" width="10" height="10" fill="none" stroke="${cssVar("--series-3")}" stroke-width="2"/>`, "carriers used");
+      addItem(`<rect x="2" y="2" width="10" height="10" fill="none" stroke="${cssVar("--muted")}" stroke-width="1.2"/>`, "carriers tried");
+    }
+  } else {
+    if (layers.points) {
+      const metric = METRICS[$("colour-by").value];
+      const [a, b] = shown ? metric.domain(shown) : [0, 1];
+      // A "+" after the top end when values beyond it are clamped to it.
+      items.push(`<span class="item">points by ${metric.label}: ${fixed(a, 2)} <span class="ramp" style="background:linear-gradient(90deg,${RAMP.join(",")})"></span> ${fixed(b, 2)} ${metric.unit}${b < a ? "" : "+"}</span>`);
+    }
+    if (layers.vectors) addItem(`<line x1="2" y1="12" x2="12" y2="2" stroke="${cssVar("--series-2")}" stroke-width="2"/>`, `residual × ${$("gain").value}`);
+    if (layers.outliers) addItem(`<path d="M3 3L11 11M11 3L3 11" stroke="${cssVar("--critical")}" stroke-width="2"/>`, "rejected by the fit");
+    if (layers.grid) addItem(`<path d="M1 5H13M1 10H13M5 1V13M10 1V13" stroke="${cssVar("--text-secondary")}" stroke-width="1"/>`, "board squares through the fitted pose");
+    if (layers.dropped) for (const drop of DROPS) {
+      const path = { square: `<rect x="3" y="3" width="8" height="8"/>`, triangle: `<path d="M7 2L12 11H2Z"/>`, diamond: `<path d="M7 1L13 7L7 13L1 7Z"/>`, circle: `<circle cx="7" cy="7" r="4.5"/>` }[drop.shape];
+      addItem(path.replace("/>", ` fill="${cssVar(drop.color)}" stroke="#000" stroke-width="0.8"/>`), drop.text);
+    }
+    if (layers.coverage && shown && shown.coverage) addItem(`<rect x="3" y="3" width="8" height="8" fill="${cssVar("--series-3")}" opacity="0.6"/>`, `points of the ${shown.coverage.length} views kept for calibration`);
+    if (layers.coarse) {
+      addItem(`<rect x="3" y="3" width="8" height="8" fill="${RAMP[3]}" stroke="#000"/>`, "coarse node (quality shade)");
+      addItem(`<path d="M3 3L11 11M11 3L3 11" stroke="${cssVar("--muted")}" stroke-width="1.5"/>`, "coarse node refused");
+      addItem(`<circle cx="7" cy="7" r="5" fill="none" stroke="${cssVar("--series-5")}" stroke-width="2"/>`, "seed of the walk");
+    }
+  }
+  $("legend").innerHTML = items.join("");
+}
+
+// ---------- probe ----------
+// One probe request at a time; moves meanwhile ask for one more after it,
+// for wherever the pointer is then.
+let probeInFlight = false, probeAgain = false;
+const overlay = $("overlay");
+overlay.addEventListener("mousemove", (e) => {
+  if (!shown) return;
+  const r = overlay.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * shown.width);
+  const y = Math.floor((e.clientY - r.top) / r.height * shown.height);
+  hoverPixel = { x, y };
+  requestProbe();
+  renderOverlay();
+});
+overlay.addEventListener("mouseleave", () => { hoverPixel = null; renderOverlay(); });
+async function requestProbe() {
+  if (probeInFlight) { probeAgain = true; return; }
+  probeInFlight = true;
+  const { x, y } = hoverPixel || {};
+  if (hoverPixel && shown) {
+    try {
+      const r = await fetch(`/probe?frame=${shown.frame}&x=${x}&y=${y}`);
+      if (r.ok) showProbe(await r.json(), x, y);
+    } catch (_) {}
+  }
+  probeInFlight = false;
+  if (probeAgain) { probeAgain = false; requestProbe(); }
+}
+/** Writes what the server knows at the pixel and, if close enough, about the nearest point. */
+function showProbe(p, x, y) {
+  const parts = [`pixel <b>${x}, ${y}</b>`];
+  if (mode === "spectrum") {
+    const k = p.frequency || [0, 0];
+    const length = Math.hypot(k[0], k[1]);
+    parts.push(`frequency <b>${fixed(k[0], 4)}, ${fixed(k[1], 4)}</b> rad/px`, `period <b>${length ? fixed(TAU / length, 2) : "∞"}</b> px`,
+      `angle <b>${fixed(Math.atan2(k[1], k[0]) * 180 / Math.PI, 1)}°</b>`, `log magnitude <b>${fixed(p.spectrum, 2)}</b>`);
+  } else {
+    parts.push(`intensity <b>${fixed(p.intensity, 3)}</b>`);
+    if (p.restored !== null && p.restored !== undefined) parts.push(`restored <b>${fixed(p.restored, 3)}</b>`);
+    if (p.phase) parts.push(`phases <b>${fixed(p.phase[0] / Math.PI, 3)}π, ${fixed(p.phase[1] / Math.PI, 3)}π</b>`);
+    if (p.square) parts.push(`pattern square <b>${fixed(p.square[0], 2)}, ${fixed(p.square[1], 2)}</b>`);
+    if (p.field) parts.push(`field amplitude <b>${fixed(p.field.amplitude[0], 3)}, ${fixed(p.field.amplitude[1], 3)}</b>, phase <b>${fixed(p.field.phase[0] / Math.PI, 3)}π, ${fixed(p.field.phase[1] / Math.PI, 3)}π</b>`);
+    else parts.push(`<span class="muted">off the measured board</span>`);
+  }
+  const { item: near, distance } = nearest(shown.points, (q) => Math.hypot(q.x - x, q.y - y));
+  // Within three fine-grid steps, so the point read out is the one hovered.
+  const reach = 3 * (shown.attempts?.[shown.chosen]?.fine_step || 10);
+  let pointLine = "";
+  if (near && mode !== "spectrum" && distance < reach) {
+    pointLine = `<br>nearest point at <b>${near.x}, ${near.y}</b>: board <b>${fixed(near.boardX, 3)}, ${fixed(near.boardY, 3)}</b> · quality <b>${fixed(near.quality, 3)}</b> · offset <b>${fixed(near.offset, 3)}σ</b>` +
+      (hasResidual(near) ? ` · residual <b>${fixed(near.rx, 3)}, ${fixed(near.ry, 3)}</b> px (|r| ${fixed(Math.hypot(near.rx, near.ry), 3)})` : "") +
+      (near.kept ? "" : ` · <span class="bad">✕ rejected</span>`);
+  }
+  $("probe").innerHTML = parts.join(" · ") + pointLine;
+}
+
+// ---------- panels ----------
+/** Fills a `<dl>` with `[term, html]` rows; falsy rows are left out. */
+function fillDefinitions(id, rows) {
+  $(id).innerHTML = rows.filter(Boolean).map(([term, html]) => `<dt>${term}</dt><dd>${html}</dd>`).join("");
+}
+/** Fills a bar chart with `[name, value, note]` rows, bars relative to the largest. */
+function fillBars(id, rows, unit = "") {
+  const max = Math.max(1e-9, ...rows.map((r) => r[1]));
+  const label = (v) => typeof v === "number" ? (unit === "ms" ? v.toFixed(1) : v) : v;
+  $(id).innerHTML = rows.map(([name, v, note]) =>
+    `<span class="name">${escapeHtml(name)}</span><span class="track"><div class="fill" style="width:${(100 * v / max).toFixed(1)}%"></div></span><span class="num">${label(v)}${note ? ` <span class="muted">${note}</span>` : ""}</span>`
+  ).join("") || `<span class="muted">nothing measured</span>`;
+}
+const GOOD_MARK = `<span style="color:var(--good)">✓</span>`;
+
+/** Fills every diagnostic card from the frame shown. */
+function renderPanels() {
+  const d = shown;
+  // The attempt the view came from or, when none gave one, the last tried.
+  const attempt = d.attempts && d.chosen !== null && d.chosen !== undefined ? d.attempts[d.chosen] : d.attempts?.[d.attempts.length - 1];
+  renderFrameInfo(d, attempt);
+  renderTimings(d);
+  fillBars("funnel", attempt ? attempt.funnel.map(([name, n]) => [name, n]).concat(d.ok ? [["kept by the fit", keptCount(d)]] : []) : []);
+  renderCode(attempt?.code);
+  renderFit(d);
+  renderCamera(d);
+  renderAttempts(d);
+  renderPeakTable(d.search);
+  drawHistogram();
+  drawScatter();
+}
+
+function renderFrameInfo(d, attempt) {
+  const result = d.ok ? `${GOOD_MARK} pose` : d.mode === "calibrate" ? escapeHtml(d.message) : `<span class="bad">✕</span> ${escapeHtml(d.reason)}`;
+  const spectrum = d.search?.searched
+    ? `searched, ${d.search.peaks.length} peaks`
+    : `skipped, carriers of the last frame reused${d.spectrum_frame !== null ? ` (image from frame ${d.spectrum_frame})` : ""}`;
+  const hasDefocus = attempt && attempt.defocus !== null && attempt.defocus !== undefined;
+  fillDefinitions("frame-info", [
+    ["frame", `${d.frame}${paused ? " (paused)" : ""}`],
+    ["time", `${fixed(d.t, 2)} s`],
+    ["size", `${d.width} × ${d.height}`],
+    ["frames skipped before it", d.skipped],
+    ["result", result],
+    ["spectrum", spectrum],
+    ["carrier pairs followed", d.attempts?.length ?? 0],
+    attempt && ["carrier period", `${fixed(attempt.period, 2)} px`],
+    attempt && ["grid steps", `coarse ${attempt.coarse_step} px, fine ${attempt.fine_step} px`],
+    hasDefocus && ["defocus (fitted blur σ)", `${fixed(attempt.defocus, 2)} px, ${fixed(attempt.defocus / attempt.period, 2)} of a period`],
+    ["total", `${fixed(d.ms, 1)} ms`],
+  ]);
+}
+
+function renderTimings(d) {
+  const rows = [];
+  if (d.search?.searched) rows.push(["spectrum search", d.search.ms]);
+  (d.attempts || []).forEach((a, i) => {
+    const tag = d.attempts.length > 1 ? ` #${i + 1}` : "";
+    for (const [name, ms] of a.timings) rows.push([name + tag, ms]);
+  });
+  if (d.timings?.pnp !== undefined) rows.push(["pnp", d.timings.pnp]);
+  if (d.timings?.jpeg !== undefined) rows.push(["jpeg", d.timings.jpeg]);
+  fillBars("timings", rows, "ms");
+}
+
+function renderCode(code) {
+  if (!code) { fillDefinitions("code", [["status", `<span class="muted">not reached</span>`]]); return; }
+  if (!code.ok) { fillDefinitions("code", [["status", `<span class="bad">✕ ${escapeHtml(code.error)}</span>`]]); return; }
+  const rotation = ["0°", "+90°", "180°", "−90°"][code.transform] ?? code.transform;
+  const margin = Number.isFinite(code.runner_up_false_accept) && code.false_accept > 0
+    ? `${scientific(code.runner_up_false_accept / code.false_accept)} ×` : "no other square matched";
+  fillDefinitions("code", [
+    ["status", `${GOOD_MARK} read`],
+    ["orientation", `${rotation} (transform ${code.transform})`],
+    ["offset (delta)", code.delta.join(", ")],
+    ["square at the centre", code.centre_square.join(", ")],
+    ["code position k", code.k.join(", ")],
+    ["bit errors x, y", `${code.bit_errors[0]}, ${code.bit_errors[1]} of ${code.check_bits} check bits`],
+    ["false accept", scientific(code.false_accept)],
+    ["runner-up false accept", scientific(code.runner_up_false_accept)],
+    ["margin over runner-up", margin],
+    ["x window", `<span class="mono">${code.x_window.join("")}</span>`],
+    ["y window", `<span class="mono">${code.y_window.join("")}</span>`],
+  ]);
+}
+
+function renderFit(d) {
+  if (!d.ok) {
+    const why = d.mode === "calibrate" ? "calibrating, no pose yet" : `no fit: ${escapeHtml(d.reason)}`;
+    fillDefinitions("fit", [["status", `<span class="muted">${why}</span>`]]);
+    return;
+  }
+  fillDefinitions("fit", [
+    ["rms", `${fixed(d.rms, 4)} px`],
+    ["median |r|", `${fixed(d.median, 4)} px`],
+    ["95th percentile", `${fixed(d.p95, 4)} px`],
+    ["max kept", `${fixed(d.max, 4)} px`],
+    ["mean residual", `${fixed(d.bias[0], 4)}, ${fixed(d.bias[1], 4)} px`],
+    ["points kept / rejected", `${keptCount(d)} / ${d.rejected}`],
+    ["distance to origin", `${fixed(d.distance, 2)} mm`],
+    ["position", `${fixed(d.x, 3)}, ${fixed(d.y, 3)}, ${fixed(d.z, 3)} mm`],
+    ["rotation α β γ", `${fixed(d.alpha, 3)}°, ${fixed(d.beta, 3)}°, ${fixed(d.gamma, 3)}°`],
+    ["R", `<span class="mono">${d.pose.rotation.map((row) => row.map((v) => v.toFixed(5)).join(" ")).join("<br>")}</span>`],
+  ]);
+}
+
+function renderCamera(d) {
+  const camera = d.camera;
+  if (!camera) { fillDefinitions("camera", [["status", `<span class="muted">not calibrated yet</span>`]]); return; }
+  fillDefinitions("camera", [
+    ["model", camera.model],
+    ["size", `${camera.width} × ${camera.height}`],
+    ["fx, fy", `${fixed(camera.fx, 2)}, ${fixed(camera.fy, 2)}`],
+    ["cx, cy", `${fixed(camera.cx, 2)}, ${fixed(camera.cy, 2)}`],
+    ["distortion", `<span class="mono">${camera.distortion.map((v) => v.toFixed(5)).join(" ")}</span>`],
+    ["board", `square ${d.target.square}, LFSR order ${d.target.order}, period ${d.target.period} squares`],
+  ]);
+}
+
+/** A row per carrier pair followed, the chosen one marked. */
+function renderAttempts(d) {
+  const row = (a, i) => {
+    const chosen = i === d.chosen;
+    const ms = a.timings.reduce((sum, [, v]) => sum + v, 0);
+    const code = !a.code ? "–" : a.code.ok ? `✓ ${a.code.bit_errors.join("+")} bit err` : `<span class="bad">${escapeHtml(a.code.error)}</span>`;
+    const outcome = a.error ? `<span class="bad">${escapeHtml(a.error)}</span>` : "points";
+    return `<tr class="${chosen ? "chosen" : ""}"><td>${chosen ? "▶ " : ""}${i + 1}</td><td style="text-align:right">${a.from_previous ? "last frame" : "spectrum"}</td>` +
+      a.carriers.map((c) => `<td>${fixed(c.period, 2)} px / ${fixed(c.angle, 1)}°</td>`).join("") +
+      `<td>${a.seed ? fixed(a.seed[2], 3) : "–"}</td><td>${a.coarse} / ${a.refused}</td><td>${a.funnel.map(([, n]) => n).join(" → ") || "–"}</td><td>${code}</td><td>${outcome}</td><td>${ms.toFixed(1)}</td></tr>`;
+  };
+  $("attempts").innerHTML = `<table><thead><tr><th>#</th><th>source</th><th>k1 period / angle</th><th>k2 period / angle</th><th>seed quality</th><th>coarse nodes / refused</th><th>fine funnel</th><th>code</th><th>outcome</th><th>ms</th></tr></thead><tbody>` +
+    (d.attempts || []).map(row).join("") + `</tbody></table>` + (d.attempts?.length ? "" : `<p class="muted">no carrier pair found</p>`);
+}
+
+/** The first dozen peaks of the spectrum search, if it ran this frame. */
+function renderPeakTable(search) {
+  if (!search?.searched) {
+    $("peaks").innerHTML = `<p class="muted">Not searched this frame: the previous frame's carriers still read the code.</p>`;
+    return;
+  }
+  const peaks = search.peaks || [];
+  const row = (p, i) => {
+    const length = Math.hypot(p.k[0], p.k[1]);
+    return `<tr><td>${i + 1}</td><td>${fixed(TAU / length, 2)}</td><td>${fixed(Math.atan2(p.k[1], p.k[0]) * 180 / Math.PI, 1)}°</td><td>${fixed(p.score, 1)}</td><td>${p.lifted ? "code line, ×3" : ""}</td></tr>`;
+  };
+  $("peaks").innerHTML = `<table><thead><tr><th>#</th><th>period (px)</th><th>angle</th><th>score</th><th>note</th></tr></thead><tbody>` +
+    peaks.slice(0, 12).map(row).join("") +
+    `</tbody></table>${peaks.length > 12 ? `<p class="muted">and ${peaks.length - 12} more</p>` : ""}`;
+}
+
+/** How many frames gave a pose, and why the others did not. */
+function renderFailures() {
+  const counts = new Map();
+  for (const p of samples) if (!p.ok) counts.set(p.reason, (counts.get(p.reason) || 0) + 1);
+  const total = samples.length;
+  const rows = [...counts].sort((a, b) => b[1] - a[1]);
+  const posed = total - rows.reduce((sum, r) => sum + r[1], 0);
+  $("failures").innerHTML = `<p style="margin:0 0 6px">${posed} of ${total} frames gave a pose (${total ? (100 * posed / total).toFixed(1) : 0}%), ` +
+    `${samples.filter((p) => p.from_previous).length} reused the last frame's carriers.</p>` +
+    (rows.length ? `<table><thead><tr><th>reason</th><th>frames</th></tr></thead><tbody>${rows.map(([reason, n]) => `<tr><td>${escapeHtml(reason)}</td><td>${n}</td></tr>`).join("")}</tbody></table>` : "");
+}
+
+// ---------- residual charts ----------
+// What the last drawing laid out, for finding what the pointer is over.
+let histogramLayout = null, scatterLayout = null;
+
+/** Histogram of the kept points' residual lengths, with the median and rms marked. `hover` is a bin to highlight. */
+function drawHistogram(hover = null) {
+  const { g, w, h } = setupCanvas($("histogram"));
+  const points = shown ? shown.points.filter((p) => p.kept && hasResidual(p)) : [];
+  histogramLayout = null;
+  if (!points.length) { g.fillStyle = cssVar("--muted"); g.fillText("no fit on this frame", 8, 20); return; }
+  const lengths = points.map((p) => Math.hypot(p.rx, p.ry));
+  const top = Math.max(...lengths) || 1e-3;
+  const binCount = 30, binWidth = top / binCount;
+  const counts = new Array(binCount).fill(0);
+  for (const v of lengths) counts[Math.min(binCount - 1, Math.floor(v / binWidth))]++;
+  const maxCount = Math.max(...counts);
+  const P = { left: 36, right: 8, top: 6, bottom: 18 };
+  const barWidth = (w - P.left - P.right) / binCount;
+  const X = (v) => P.left + v / top * (w - P.left - P.right);
+  const Y = (count) => h - P.bottom - count / maxCount * (h - P.top - P.bottom);
+
+  g.strokeStyle = cssVar("--grid"); g.fillStyle = cssVar("--muted"); g.textAlign = "right"; g.textBaseline = "middle";
+  const countStep = niceStep(maxCount, 3);
+  for (let c = 0; c <= maxCount; c += countStep) {
+    const y = Math.round(Y(c)) + 0.5;
+    g.beginPath(); g.moveTo(P.left, y); g.lineTo(w - P.right, y); g.stroke(); g.fillText(c, P.left - 6, y);
+  }
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  const lengthStep = niceStep(top, 4);
+  for (let v = 0; v <= top; v += lengthStep) g.fillText(v.toFixed(decimalsFor(lengthStep)), X(v), h - 4);
+  counts.forEach((count, i) => {
+    if (!count) return;
+    const x = P.left + i * barWidth + 1, y = Y(count);
+    g.fillStyle = cssVar("--series-1"); g.globalAlpha = hover === null || hover === i ? 1 : 0.55;
+    g.beginPath(); g.roundRect(x, y, Math.max(1, barWidth - 2), h - P.bottom - y, [4, 4, 0, 0]); g.fill();
+  });
+  g.globalAlpha = 1;
+  for (const [v, label] of [[shown.median, "median"], [shown.rms, "rms"]]) {
+    if (!Number.isFinite(v)) continue;
+    const x = Math.round(X(v)) + 0.5;
+    g.strokeStyle = cssVar("--text-secondary"); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(x, P.top); g.lineTo(x, h - P.bottom); g.stroke(); g.setLineDash([]);
+    // The two labels on different lines, as the values are often close.
+    g.fillStyle = cssVar("--text-secondary"); g.textAlign = "left"; g.fillText(label, x + 3, P.top + (label === "rms" ? 22 : 10));
+  }
+  histogramLayout = { P, barWidth, binCount, binWidth, counts };
+}
+
+/** Residual vectors as points, kept ones as dots and rejected ones as crosses, with the mean as a line from the centre. */
+function drawScatter(hover = null) {
+  const { g, w, h } = setupCanvas($("scatter"));
+  const points = shown ? shown.points.filter(hasResidual) : [];
+  scatterLayout = null;
+  if (!points.length) { g.fillStyle = cssVar("--muted"); g.fillText("no fit on this frame", 8, 20); return; }
+  const kept = points.filter((p) => p.kept);
+  // The square spans the largest kept residual; rejected ones beyond it sit on its edge.
+  const limit = Math.max(1e-3, ...kept.map((p) => Math.max(Math.abs(p.rx), Math.abs(p.ry)))) * 1.1;
+  const size = Math.min(w, h) - 30;
+  const cx = 30 + (w - 30) / 2, cy = h / 2 - 8;
+  const clamped = (v) => Math.max(-1, Math.min(1, v / limit));
+  const X = (v) => cx + clamped(v) * size / 2, Y = (v) => cy + clamped(v) * size / 2;
+  g.strokeStyle = cssVar("--grid");
+  g.strokeRect(cx - size / 2, cy - size / 2, size, size);
+  g.strokeStyle = cssVar("--axis");
+  g.beginPath(); g.moveTo(cx - size / 2, cy); g.lineTo(cx + size / 2, cy); g.moveTo(cx, cy - size / 2); g.lineTo(cx, cy + size / 2); g.stroke();
+  g.fillStyle = cssVar("--muted"); g.textAlign = "center";
+  g.fillText(`±${fixed(limit, 3)} px (y down, as in the image)`, cx, cy + size / 2 + 14);
+  g.globalAlpha = 0.5; g.fillStyle = cssVar("--series-1");
+  for (const p of kept) { g.beginPath(); g.arc(X(p.rx), Y(p.ry), 2, 0, TAU); g.fill(); }
+  g.globalAlpha = 1;
+  g.strokeStyle = cssVar("--critical"); g.lineWidth = 1.5;
+  for (const p of points) if (!p.kept) { crossPath(g, X(p.rx), Y(p.ry), 3); g.stroke(); }
+  if (shown.bias) {
+    g.strokeStyle = cssVar("--series-2"); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(X(shown.bias[0]), Y(shown.bias[1])); g.stroke();
+  }
+  if (hover) {
+    g.strokeStyle = cssVar("--text-primary"); g.lineWidth = 2;
+    g.beginPath(); g.arc(X(hover.rx), Y(hover.ry), 5, 0, TAU); g.stroke();
+  }
+  g.lineWidth = 1;
+  scatterLayout = { points, X, Y };
+}
+
+/** Shows `html` in the chart's tooltip near `x, y`, or hides it when `html` is empty. */
+function showTip(canvas, html, x, y) {
+  const tip = canvas.parentElement.querySelector(".tip");
+  if (!html) { tip.style.display = "none"; return; }
+  tip.innerHTML = html; tip.style.display = "block";
+  tip.style.left = `${Math.min(x + 10, canvas.clientWidth - tip.offsetWidth)}px`; tip.style.top = `${Math.max(0, y - 28)}px`;
+}
+$("histogram").addEventListener("mousemove", (e) => {
+  if (!histogramLayout) return;
+  const { P, barWidth, binCount, binWidth, counts } = histogramLayout;
+  const r = e.currentTarget.getBoundingClientRect(), x = e.clientX - r.left;
+  const bin = Math.floor((x - P.left) / barWidth);
+  if (bin < 0 || bin >= binCount) { drawHistogram(); showTip(e.currentTarget, null); return; }
+  drawHistogram(bin);
+  showTip(e.currentTarget, `${fixed(bin * binWidth, 3)}–${fixed((bin + 1) * binWidth, 3)} px: <b>${counts[bin]}</b> points`, x, e.clientY - r.top);
+});
+$("histogram").addEventListener("mouseleave", (e) => { drawHistogram(); showTip(e.currentTarget, null); });
+$("scatter").addEventListener("mousemove", (e) => {
+  if (!scatterLayout) return;
+  const { points, X, Y } = scatterLayout;
+  const r = e.currentTarget.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const { item: near } = nearest(points, (p) => Math.hypot(X(p.rx) - x, Y(p.ry) - y), 12);
+  drawScatter(near);
+  showTip(e.currentTarget, near ? `pixel ${near.x}, ${near.y} · r = ${fixed(near.rx, 3)}, ${fixed(near.ry, 3)} px${near.kept ? "" : " · rejected"}` : null, x, y);
+  // Outline the point on the image too.
+  if (near) { hoverPixel = { x: near.x, y: near.y }; renderOverlay(); }
+});
+$("scatter").addEventListener("mouseleave", (e) => { drawScatter(); showTip(e.currentTarget, null); hoverPixel = null; renderOverlay(); });
+
+// ---------- loading a frame ----------
+const frameImg = $("frame");
+/** The newest frame announced, to return to when unpaused. */
+let latestFrame = null, paused = false;
+// One frame loads at a time; the newest asked for meanwhile loads after it.
+let snapshotLoading = false, snapshotWanted = null;
+/** The blob URL the image shows, released once the next one is up. */
+let frameObjectUrl = null;
+
+/** Shows the image of the current mode for a frame, or the frame itself if that image is missing. */
+async function loadImage(id) {
+  const note = $("mode-note");
+  let r = await fetch(`/image.jpg?kind=${mode}&frame=${id}`);
+  note.hidden = true;
+  if (!r.ok && mode !== "frame") {
+    note.textContent = `${mode}: ${await r.text()}; showing the frame`;
+    note.hidden = false;
+    r = await fetch(`/image.jpg?kind=frame&frame=${id}`);
+  }
+  if (!r.ok) throw new Error(await r.text());
+  const url = URL.createObjectURL(await r.blob());
+  await new Promise((done) => { frameImg.onload = frameImg.onerror = done; frameImg.src = url; });
+  if (frameObjectUrl) URL.revokeObjectURL(frameObjectUrl);
+  frameObjectUrl = url;
+}
+/** Fetches a frame's debug data and image, then redraws everything that shows it. */
+async function loadSnapshot(id) {
+  if (snapshotLoading) { snapshotWanted = id; return; }
+  snapshotLoading = true;
+  try {
+    const r = await fetch(`/debug.json?frame=${id}`);
+    if (r.ok) {
+      const d = await r.json();
+      d.points = Array.isArray(d.points) ? d.points.map(unpackPoint) : [];
+      // The image first, so the overlay never lies over another frame.
+      await loadImage(id);
+      shown = d;
+      $("json-link").href = `/debug.json?frame=${id}`;
+      $("json-link").download = `vernier-frame-${id}.json`;
+      $("png-link").href = `/frame.png?frame=${id}`;
+      $("png-link").download = `vernier-frame-${id}.png`;
+      const note = $("note");
+      const why = d.mode === "calibrate" ? d.message : d.reason;
+      note.hidden = d.ok || !why;
+      if (!note.hidden) note.textContent = why;
+      renderOverlay(); renderLegend(); renderPanels();
+    }
+  } catch (_) {}
+  snapshotLoading = false;
+  if (snapshotWanted !== null && !paused) { const next = snapshotWanted; snapshotWanted = null; loadSnapshot(next); }
+}
+
+/** The status line for a frame event, with the frame rate over the last ten frames. */
+function statusText(p) {
+  if (!p.ok) return `no pose: ${p.reason}`;
+  const recent = samples.slice(-10);
+  const rate = recent.length > 1 ? (recent.length - 1) / (recent[recent.length - 1].t - recent[0].t) : 0;
+  return `${p.points} points · rms ${p.rms.toFixed(3)} px · ${p.ms.toFixed(0)} ms per frame · ${rate.toFixed(1)} frames/s${p.skipped ? ` · ${p.skipped} skipped` : ""}`;
+}
+
+const source = new EventSource("/events");
+source.onmessage = (e) => {
+  const p = JSON.parse(e.data);
+  // Calibration progress is shown on its own, not charted.
+  if (p.mode === "calibrate" || p.mode === "calibrated") {
+    showCalibration(p);
+    if (p.frame !== undefined && !paused) loadSnapshot(p.frame);
+    return;
+  }
+  p.bits = p.bit_errors ? p.bit_errors[0] + p.bit_errors[1] : undefined;
+  samples.push(p);
+  latestFrame = p.frame;
+  if (!paused) {
+    $("status").textContent = statusText(p);
+    loadSnapshot(p.frame);
+  }
+  scheduleRedraw();
+};
+source.onerror = () => { $("status").textContent = "connection lost; is vernier track still running?"; };
+
+// Charts redraw at most every 100 ms, and always once after the last event.
+let lastRedraw = 0, redrawTimer = null;
+function scheduleRedraw() {
+  if (redrawTimer !== null) return;
+  const wait = Math.max(0, 100 - (performance.now() - lastRedraw));
+  redrawTimer = setTimeout(() => {
+    redrawTimer = null; lastRedraw = performance.now();
+    drawAllCharts(); drawTable(); renderFailures();
+  }, wait);
+}
+
+// ---------- phone ----------
+/** What the server tells the phone (`/phone`, `/upload`): mode, frame size, views; null when not served by `vernier phone`. */
+let phone = null;
+let cameraStream = null, sending = false, wakeLock = null;
+const showCameraStatus = (text) => { $("cam-status").textContent = text; };
+fetch("/phone").then((r) => (r.ok ? r.json() : null)).then((state) => {
+  if (!state) return;
+  phone = state;
+  $("phone").hidden = false;
+  if (phone.mode === "calibrate") showCalibration({ mode: "calibrate", views: phone.views, needed: phone.needed, message: "start the camera and show the board" });
+}).catch(() => {});
+
+/** Shows calibration progress, or its result once calibrated. */
+function showCalibration(p) {
+  $("cal").hidden = false;
+  if (p.mode === "calibrated") {
+    $("cal-count").textContent = "done";
+    $("cal-bar").style.width = "100%";
+    $("cal-message").textContent = p.message;
+    const c = p.camera;
+    fillDefinitions("cal-result", [
+      ["rms over all views", `${fixed(p.rms, 4)} px`],
+      ["model", `${c.model}, ${c.width} × ${c.height}`],
+      ["fx, fy", `${fixed(c.fx, 2)}, ${fixed(c.fy, 2)}`],
+      ["cx, cy", `${fixed(c.cx, 2)}, ${fixed(c.cy, 2)}`],
+      ["distortion", `<span class="mono">${c.distortion.map((v) => v.toFixed(5)).join(" ")}</span>`],
+      ["rms per view", `<span class="mono">${p.per_view_rms.map((v) => v.toFixed(3)).join(" ")}</span>`],
+    ]);
+    if (phone) { phone.mode = "track"; phone.size = [c.width, c.height]; }
+    $("status").textContent = "calibrated; tracking";
+    return;
+  }
+  $("cal-result").innerHTML = "";
+  if (p.views !== undefined) {
+    $("cal-count").textContent = `${p.views} / ${p.needed} views`;
+    $("cal-bar").style.width = `${(100 * p.views / p.needed).toFixed(1)}%`;
+  }
+  $("cal-message").textContent = p.message || "";
+  if (!paused) $("status").textContent = `calibrating: ${p.message || ""}`;
+}
+
+/** Opens the phone's back camera and starts sending its frames. */
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showCameraStatus("this browser gives no camera here: the page must be opened over https");
+    return;
+  }
+  const [pickedWidth, pickedHeight] = $("cam-res").value.split("x").map(Number);
+  // Tracking asks the camera for the size it was calibrated at.
+  const [w, h] = phone.size || [pickedWidth, pickedHeight];
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: w }, height: { ideal: h } },
+    });
+  } catch (e) {
+    showCameraStatus(`camera refused: ${e.message || e}`);
+    return;
+  }
+  const video = $("cam-video");
+  video.srcObject = cameraStream;
+  await video.play();
+  const track = cameraStream.getVideoTracks()[0];
+  const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+  $("cam-focus").hidden = !(capabilities.focusMode && capabilities.focusMode.includes("manual"));
+  $("cam-focus").textContent = "Lock focus";
+  // Keep the screen on: a sleeping phone stops sending.
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {}
+  sending = true;
+  $("cam-start").textContent = "Stop camera";
+  sendFrames();
+}
+function stopCamera() {
+  sending = false;
+  if (cameraStream) cameraStream.getTracks().forEach((t) => t.stop());
+  cameraStream = null;
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+  $("cam-start").textContent = "Start camera";
+  $("cam-focus").hidden = true;
+  showCameraStatus("camera off");
+}
+/**
+ * Posts camera frames as JPEGs while the camera is on. Each upload returns
+ * once the server has taken the frame, so frames go at the pace they are
+ * measured.
+ */
+async function sendFrames() {
+  const video = $("cam-video");
+  const canvas = document.createElement("canvas");
+  const g = canvas.getContext("2d");
+  const sendTimes = [];
+  // Each camera frame once: copies of one frame would pass for a still board.
+  const nextFrame = () => new Promise((done) => (video.requestVideoFrameCallback ? video.requestVideoFrameCallback(() => done()) : setTimeout(done, 34)));
+  while (sending) {
+    await nextFrame();
+    const videoWidth = video.videoWidth, videoHeight = video.videoHeight;
+    if (!videoWidth) { await sleep(100); continue; }
+    const [w, h] = phone.size || [videoWidth, videoHeight];
+    // A turned phone gives the other aspect ratio, which the calibration does not fit.
+    if (Math.abs(w / h - videoWidth / videoHeight) > 0.01) {
+      showCameraStatus(`the camera gives ${videoWidth} × ${videoHeight} but the calibration is ${w} × ${h}: hold the phone as when it was calibrated`);
+      await sleep(500);
+      continue;
+    }
+    canvas.width = w; canvas.height = h;
+    g.drawImage(video, 0, 0, w, h);
+    const blob = await new Promise((done) => canvas.toBlob(done, "image/jpeg", 0.92));
+    try {
+      const r = await fetch("/upload", { method: "POST", body: blob });
+      if (r.ok) phone = await r.json();
+      else { showCameraStatus(`upload refused: ${await r.text()}`); await sleep(500); continue; }
+    } catch (_) {
+      showCameraStatus("upload failed; is vernier phone still running?");
+      await sleep(1000);
+      continue;
+    }
+    sendTimes.push(performance.now());
+    while (sendTimes.length > 10) sendTimes.shift();
+    const rate = sendTimes.length > 1 ? (sendTimes.length - 1) / ((sendTimes[sendTimes.length - 1] - sendTimes[0]) / 1000) : 0;
+    const scaling = w !== videoWidth ? ` (camera ${videoWidth} × ${videoHeight}${w > videoWidth ? ", upscaled: pick a higher resolution" : ""})` : "";
+    showCameraStatus(`sending ${w} × ${h}${scaling} · ${rate.toFixed(1)} frames/s · ${(blob.size / 1024).toFixed(0)} kB per frame · ${phone.mode === "calibrate" ? "calibrating" : "tracking"}`);
+  }
+}
+$("cam-start").addEventListener("click", () => (sending ? stopCamera() : startCamera()));
+$("cam-focus").addEventListener("click", async () => {
+  if (!cameraStream) return;
+  const track = cameraStream.getVideoTracks()[0];
+  const locked = $("cam-focus").textContent === "Unlock focus";
+  try {
+    await track.applyConstraints({ advanced: [{ focusMode: locked ? "continuous" : "manual" }] });
+    $("cam-focus").textContent = locked ? "Lock focus" : "Unlock focus";
+  } catch (e) { showCameraStatus(`focus: ${e.message || e}`); }
+});
+$("cal-again").addEventListener("click", async () => {
+  if (!confirm("Collect views and calibrate this camera again? The calibration file is overwritten when it completes.")) return;
+  const r = await fetch("/calibrate", { method: "POST" });
+  if (r.ok) phone = await r.json();
+});
+
+// ---------- controls ----------
+/** Holds the frame shown, pinning it on the server so it stays available, or goes back to the newest. */
+function setPaused(on) {
+  paused = on;
+  $("pause").setAttribute("aria-pressed", String(on));
+  $("pause").textContent = on ? "Resume" : "Pause";
+  if (on && shown) {
+    fetch(`/pin?frame=${shown.frame}`);
+    $("status").textContent = `paused on frame ${shown.frame}; switch images and layers freely`;
+    renderPanels();
+  } else if (!on) {
+    fetch(`/pin`);
+    if (latestFrame !== null) loadSnapshot(latestFrame);
+  }
+}
+$("pause").addEventListener("click", () => setPaused(!paused));
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && e.target === document.body) { e.preventDefault(); setPaused(!paused); }
+});
+
+/** Marks `button` pressed and the others of its group not. */
+function pressOnly(selector, button) {
+  document.querySelectorAll(selector).forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
+}
+document.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", async () => {
+  mode = button.dataset.mode;
+  pressOnly("[data-mode]", button);
+  if (shown) {
+    try { await loadImage(shown.frame); } catch (_) { $("mode-note").textContent = "this frame is no longer kept"; $("mode-note").hidden = false; }
+    renderOverlay(); renderLegend();
+  }
+}));
+document.querySelectorAll("[data-window]").forEach((button) => button.addEventListener("click", () => {
+  windowSeconds = Number(button.dataset.window);
+  pressOnly("[data-window]", button);
+  drawAllCharts();
+}));
+$("zoom").addEventListener("click", (e) => {
+  const on = document.querySelector(".video").classList.toggle("zoomed");
+  e.target.setAttribute("aria-pressed", String(on));
+});
+$("table-toggle").addEventListener("click", (e) => {
+  const box = $("table");
+  const on = box.style.display !== "block";
+  box.style.display = on ? "block" : "none";
+  e.target.setAttribute("aria-pressed", String(on));
+  drawTable();
+});
+window.addEventListener("resize", () => { drawAllCharts(); if (shown) { drawHistogram(); drawScatter(); } });
+renderLegend();
+</script>
+</body>
+</html>

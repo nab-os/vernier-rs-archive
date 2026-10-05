@@ -1,0 +1,17 @@
+[package]
+name = "vernier-camera"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vernier-core = { path = "../vernier-core" }
+vernier-patterns = { path = "../vernier-patterns" }
+vernier-pose = { path = "../vernier-pose" }
+nalgebra = "0.35.0"
+rayon = "1.12.0"
+rustfft = "6.4.1"
+serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+vernier-cpu = { path = "../vernier-cpu" }
