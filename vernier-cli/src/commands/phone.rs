@@ -25,6 +25,7 @@ use vernier_camera::{Camera, Model, Target, View, calibrate};
 use super::calibrate::{load_camera, report, save};
 use super::track::{Request, Response, Tracker, listen};
 use super::webcam::{Frame, STILL_LIMIT, Signature, duplicate, signature};
+use crate::backend_select::{BackendKind, Demodulator};
 
 /// Least time between two kept calibration views, so a slow sweep of the
 /// board does not fill the set with near copies.
@@ -45,6 +46,8 @@ pub struct PhoneArgs {
     pub port: u16,
     /// File every pose is also written to, as CSV.
     pub csv: Option<PathBuf>,
+    /// Where the frames are demodulated.
+    pub backend: BackendKind,
 }
 
 /// What the measuring loop does with the frames.
@@ -304,6 +307,7 @@ pub fn run(args: &PhoneArgs) -> Result<(), String> {
     } else {
         None
     };
+    let demodulator = Arc::new(Demodulator::new(args.backend)?);
     let inbox = Arc::new(Inbox::new(camera.as_ref(), args.views));
 
     let ip = local_ip();
@@ -315,7 +319,7 @@ pub fn run(args: &PhoneArgs) -> Result<(), String> {
     let shared = listen(("0.0.0.0", args.port), args.target, Some(tls), Some(routes))?;
     print_instructions(args, ip, camera.as_ref());
 
-    let mut tracker = Tracker::new(shared, args.target, args.csv.as_deref())?;
+    let mut tracker = Tracker::new(shared, args.target, args.csv.as_deref(), demodulator)?;
     let mut collector = Collector::new();
     // The frame before, to tell whether the board is held still.
     let mut previous_frame: Option<Frame> = None;

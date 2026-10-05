@@ -17,6 +17,11 @@
 //!    measured lattice on the board.
 //! 5. Paint the coding squares back to a plain checkerboard and measure the
 //!    fine grid again, refitting the curvature on the fine nodes themselves.
+//!
+//! The windows go to a [`LocalDemodulator`] in batches: the seeds, each wave
+//! of the walk, each pass of the fine grid. [`CpuDemodulator`] sums them in
+//! `f64` on the CPU; `vernier-gpu`'s `GpuBackend` on a GPU, through
+//! [`measure_view_traced_with`].
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,8 +29,10 @@ use nalgebra::{SMatrix, SVector};
 use rayon::prelude::*;
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex64;
-use vernier_core::Real;
 use vernier_core::scalar::consts::{PI, TAU};
+use vernier_core::{
+    CarrierModel as Carrier, DemodWindow, FieldDemod, LocalDemodulator, Real, WindowDemod as Demod,
+};
 use vernier_patterns::checkerboard::Checkerboard;
 use vernier_pose::checkerboard::{CheckerboardCode, CheckerboardError, extract_code_from_phases};
 
@@ -173,6 +180,8 @@ pub enum MeasureError {
     NoBoard,
     /// Fewer than the minimum of points survived; holds how many did.
     TooFewPoints(usize),
+    /// The demodulator failed: a device lost, say.
+    Backend,
 }
 
 impl std::fmt::Display for MeasureError {
@@ -182,6 +191,7 @@ impl std::fmt::Display for MeasureError {
             Self::NoCarrier => write!(f, "no checkerboard carrier in the image"),
             Self::NoBoard => write!(f, "no region of the image holds the board cleanly"),
             Self::TooFewPoints(n) => write!(f, "only {n} points measured"),
+            Self::Backend => write!(f, "the demodulator failed"),
         }
     }
 }
@@ -321,59 +331,56 @@ pub fn demodulated_field(
     height: usize,
     attempt: &Attempt,
 ) -> Option<Field> {
+    demodulated_field_with(&CpuDemodulator, intensity, width, height, attempt)
+}
+
+/// [`demodulated_field`] on the given demodulator. None also when it fails.
+pub fn demodulated_field_with<D: LocalDemodulator>(
+    demodulator: &D,
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    attempt: &Attempt,
+) -> Option<Field> {
     let maps = attempt.phase.as_ref()?;
-    let sigma = FINE_WINDOW * attempt.period;
-    let pixel_count = width * height;
-    let value = |i: usize| intensity[i] as Real;
-    let local_mean = blur_with(width, height, sigma, value);
-    let local_square = blur_with(width, height, sigma, |i| value(i) * value(i));
-    let demodulate_carrier = |c: usize| {
+    // The measured phase on the board, the global plane wave off it.
+    let reference = |c: usize| -> Vec<Real> {
         let k = attempt.carriers[c];
-        // The measured phase on the board, the global plane wave off it.
-        let reference = |i: usize| {
-            let p = maps[i][c];
-            if p.is_finite() {
-                p as Real
-            } else {
-                k[0] * (i % width) as Real + k[1] * (i / width) as Real
-            }
-        };
-        let blurred = |f: &(dyn Fn(usize) -> Real + Sync)| blur_with(width, height, sigma, f);
-        let signal_re = blurred(&|i| value(i) * reference(i).cos());
-        let signal_im = blurred(&|i| -value(i) * reference(i).sin());
-        let unit_re = blurred(&|i| reference(i).cos());
-        let unit_im = blurred(&|i| -reference(i).sin());
-        let mut phase = vec![0.0f32; pixel_count];
-        let mut amplitude = vec![0.0f32; pixel_count];
-        phase
-            .par_iter_mut()
-            .zip(amplitude.par_iter_mut())
+        maps.par_iter()
             .enumerate()
-            .for_each(|(i, (p, a))| {
-                // Σw·(I − mean)·e^{−iψ} over Σw, as `demodulate` does.
-                let z = Complex64::new(
-                    signal_re[i] - local_mean[i] * unit_re[i],
-                    signal_im[i] - local_mean[i] * unit_im[i],
-                );
-                let deviation = (local_square[i] - local_mean[i] * local_mean[i])
-                    .max(0.0)
-                    .sqrt();
-                *p = (reference(i) + z.arg()) as f32;
-                *a = if deviation > 0.0 {
-                    (z.norm() / deviation) as f32
+            .map(|(i, m)| {
+                let p = m[c];
+                if p.is_finite() {
+                    p as Real
                 } else {
-                    0.0
-                };
-            });
-        (phase, amplitude)
+                    k[0] * (i % width) as Real + k[1] * (i / width) as Real
+                }
+            })
+            .collect()
     };
-    let (phase1, amplitude1) = demodulate_carrier(0);
-    let (phase2, amplitude2) = demodulate_carrier(1);
+    let references = [reference(0), reference(1)];
+    let frame = demodulator.load(intensity, width, height).ok()?;
+    let found = demodulator
+        .demodulate_field(
+            &frame,
+            [&references[0], &references[1]],
+            FINE_WINDOW * attempt.period,
+        )
+        .ok()?;
+    let unwrapped = |c: usize| -> Vec<f32> {
+        references[c]
+            .par_iter()
+            .zip(&found.phase[c])
+            .map(|(&r, &p)| (r + p) as f32)
+            .collect()
+    };
+    let amplitude =
+        |c: usize| -> Vec<f32> { found.amplitude[c].iter().map(|&a| a as f32).collect() };
     Some(Field {
         width,
         height,
-        phase: [phase1, phase2],
-        amplitude: [amplitude1, amplitude2],
+        phase: [unwrapped(0), unwrapped(1)],
+        amplitude: [amplitude(0), amplitude(1)],
         carriers: attempt.carriers,
     })
 }
@@ -395,60 +402,147 @@ impl Stopwatch {
     }
 }
 
-/// A grayscale frame, row-major.
+/// A grayscale frame, row-major: what [`CpuDemodulator`] reads.
 #[derive(Clone, Copy)]
-struct Image<'a> {
+pub struct Image<'a> {
     data: &'a [f32],
     width: usize,
     height: usize,
 }
 
-/// Local phase model of one carrier around a point: gradient `k` and Hessian
-/// `(xx, xy, yy)`, in radians per pixel.
+/// The reference [`LocalDemodulator`]: every window summed in `f64` on the
+/// CPU, windows spread over threads.
 #[derive(Clone, Copy, Debug, Default)]
-struct Carrier {
-    k: [Real; 2],
-    h: [Real; 3],
-}
+pub struct CpuDemodulator;
 
-impl Carrier {
-    /// A plane wave: constant frequency `k`, no curvature.
-    fn plane(k: [Real; 2]) -> Self {
-        Self { k, h: [0.0; 3] }
+impl LocalDemodulator for CpuDemodulator {
+    type Frame<'a> = Image<'a>;
+
+    fn load<'a>(
+        &'a self,
+        data: &'a [f32],
+        width: usize,
+        height: usize,
+    ) -> vernier_core::Result<Image<'a>> {
+        Ok(Image {
+            data,
+            width,
+            height,
+        })
     }
 
-    /// The phase `(qx, qy)` pixels from where the model's phase is `base`.
-    fn phase_at(&self, base: Real, qx: Real, qy: Real) -> Real {
-        let Carrier { k, h } = *self;
-        base + k[0] * qx
-            + k[1] * qy
-            + 0.5 * (h[0] * qx * qx + 2.0 * h[1] * qx * qy + h[2] * qy * qy)
+    fn demodulate_windows(
+        &self,
+        image: &Image<'_>,
+        windows: &[DemodWindow],
+    ) -> vernier_core::Result<Vec<Demod>> {
+        Ok(windows
+            .par_iter()
+            .map(|w| demodulate(image, w.x, w.y, &w.carriers, w.sigma))
+            .collect())
+    }
+
+    fn demodulate_field(
+        &self,
+        image: &Image<'_>,
+        references: [&[Real]; 2],
+        sigma: Real,
+    ) -> vernier_core::Result<FieldDemod> {
+        let (width, height) = (image.width, image.height);
+        let value = |i: usize| image.data[i] as Real;
+        let local_mean = blur_with(width, height, sigma, value);
+        let local_square = blur_with(width, height, sigma, |i| value(i) * value(i));
+        let demodulate_carrier = |reference: &[Real]| {
+            let blurred = |f: &(dyn Fn(usize) -> Real + Sync)| blur_with(width, height, sigma, f);
+            let signal_re = blurred(&|i| value(i) * reference[i].cos());
+            let signal_im = blurred(&|i| -value(i) * reference[i].sin());
+            let unit_re = blurred(&|i| reference[i].cos());
+            let unit_im = blurred(&|i| -reference[i].sin());
+            let mut phase = vec![0.0; width * height];
+            let mut amplitude = vec![0.0; width * height];
+            phase
+                .par_iter_mut()
+                .zip(amplitude.par_iter_mut())
+                .enumerate()
+                .for_each(|(i, (p, a))| {
+                    // Σw·(I − mean)·e^{−iψ} over Σw, as `demodulate` does.
+                    let z = Complex64::new(
+                        signal_re[i] - local_mean[i] * unit_re[i],
+                        signal_im[i] - local_mean[i] * unit_im[i],
+                    );
+                    let deviation = (local_square[i] - local_mean[i] * local_mean[i])
+                        .max(0.0)
+                        .sqrt();
+                    *p = z.arg();
+                    *a = if deviation > 0.0 {
+                        z.norm() / deviation
+                    } else {
+                        0.0
+                    };
+                });
+            (phase, amplitude)
+        };
+        let (phase1, amplitude1) = demodulate_carrier(references[0]);
+        let (phase2, amplitude2) = demodulate_carrier(references[1]);
+        Ok(FieldDemod {
+            phase: [phase1, phase2],
+            amplitude: [amplitude1, amplitude2],
+        })
+    }
+}
+
+/// A frame loaded on a demodulator, with the pixels the host-side stages
+/// (the spectrum, the code, the restoration) read.
+struct Frame<'a, D: LocalDemodulator + 'a> {
+    image: Image<'a>,
+    demodulator: &'a D,
+    loaded: D::Frame<'a>,
+}
+
+impl<'a, D: LocalDemodulator> Frame<'a, D> {
+    fn load(
+        demodulator: &'a D,
+        data: &'a [f32],
+        width: usize,
+        height: usize,
+    ) -> Result<Self, MeasureError> {
+        Ok(Self {
+            image: Image {
+                data,
+                width,
+                height,
+            },
+            demodulator,
+            loaded: demodulator
+                .load(data, width, height)
+                .map_err(|_| MeasureError::Backend)?,
+        })
+    }
+
+    /// One [`Demod`] per window, in order.
+    fn demodulate(&self, windows: &[DemodWindow]) -> Result<Vec<Demod>, MeasureError> {
+        if windows.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.demodulator
+            .demodulate_windows(&self.loaded, windows)
+            .map_err(|_| MeasureError::Backend)
+    }
+}
+
+/// A window of `sigma` pixels at a pixel, against `carriers`.
+fn window(x: usize, y: usize, carriers: &[Carrier; 2], sigma: Real) -> DemodWindow {
+    DemodWindow {
+        x,
+        y,
+        sigma,
+        carriers: *carriers,
     }
 }
 
 /// Plane-wave models of both carriers.
 fn planes(k: [[Real; 2]; 2]) -> [Carrier; 2] {
     [Carrier::plane(k[0]), Carrier::plane(k[1])]
-}
-
-/// What a window found of both carriers.
-#[derive(Clone, Copy, Debug)]
-struct Demod {
-    /// Against the reference, in radians, wrapped.
-    phase: [Real; 2],
-    /// Carrier amplitude over local contrast, per carrier.
-    quality: [Real; 2],
-    /// How far the carrier's weight sits from the window centre, in window
-    /// sigmas, worst carrier. A window hanging off the board or the frame
-    /// leans away from the edge, and its phase is biased.
-    offset: Real,
-}
-
-impl Demod {
-    /// The worse carrier's quality.
-    fn quality(&self) -> Real {
-        self.quality[0].min(self.quality[1])
-    }
 }
 
 /// An angle brought into `-π..=π`.
@@ -923,32 +1017,45 @@ fn period_of(carriers: &[Carrier; 2]) -> Real {
     TAU / (0.5 * (norm(carriers[0].k) + norm(carriers[1].k)))
 }
 
-/// Local frequency of both carriers at a node, from the phase half a period
-/// either way, unwrapped against the frequency we expected. None when the
-/// probe would leave the frame.
-fn local_frequency(
+/// The probes [`local_frequency`] reads at a node: windows half a period
+/// either way, left, right, up and down. None when one would leave the frame.
+fn frequency_probes(
     image: &Image,
     x: usize,
     y: usize,
     expected: &[Carrier; 2],
-) -> Option<[[Real; 2]; 2]> {
+) -> Option<[DemodWindow; 4]> {
     let period = period_of(expected);
     let sigma = COARSE_WINDOW * period;
     let delta = ((0.5 * period).round() as usize).max(1);
     if x < delta || y < delta || x + delta >= image.width || y + delta >= image.height {
         return None;
     }
-    let at = |px: usize, py: usize| demodulate(image, px, py, expected, sigma);
-    let (left, right) = (at(x - delta, y), at(x + delta, y));
-    let (up, down) = (at(x, y - delta), at(x, y + delta));
-    let baseline = 2.0 * delta as Real;
+    let at = |px: usize, py: usize| window(px, py, expected, sigma);
+    Some([
+        at(x - delta, y),
+        at(x + delta, y),
+        at(x, y - delta),
+        at(x, y + delta),
+    ])
+}
+
+/// Local frequency of both carriers at a node, from the phase its
+/// [`frequency_probes`] found, unwrapped against the frequency we expected.
+fn local_frequency(
+    expected: &[Carrier; 2],
+    probes: &[DemodWindow; 4],
+    found: &[Demod],
+) -> [[Real; 2]; 2] {
+    let [left, right, up, down] = [0, 1, 2, 3].map(|i| found[i]);
+    let baseline = (probes[1].x - probes[0].x) as Real;
     let mut k = [[0.0; 2]; 2];
     for (c, carrier) in expected.iter().enumerate() {
         let e = carrier.k;
         k[c][0] = e[0] + wrap(right.phase[c] - left.phase[c] - e[0] * baseline) / baseline;
         k[c][1] = e[1] + wrap(down.phase[c] - up.phase[c] - e[1] * baseline) / baseline;
     }
-    Some(k)
+    k
 }
 
 /// A node of the walk: both unwrapped phases, both local frequencies and the
@@ -1030,23 +1137,23 @@ impl Grid {
 }
 
 /// Walks the coarse grid out from the best seed, breadth first, each wave in
-/// parallel. A node joins when both carriers are clean there and its phase
+/// one batch. A node joins when both carriers are clean there and its phase
 /// lands within a quarter turn of what its parent predicts.
-fn walk(
-    image: &Image,
+fn walk<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     start: [[Real; 2]; 2],
     period: Real,
     attempt: &mut Attempt,
 ) -> Result<HashMap<GridNode, Node>, MeasureError> {
-    let (seed, seed_quality) = best_seed(image, grid, start, period)?;
+    let (seed, seed_quality) = best_seed(frame, grid, start, period)?;
     attempt.seed = Some((grid.point(seed), seed_quality));
     if seed_quality < MIN_QUALITY {
         return Err(MeasureError::NoBoard);
     }
     let mut nodes = HashMap::new();
-    nodes.insert(seed, measure_seed(image, grid, seed, start)?);
-    let refused = grow(image, grid, &mut nodes, seed);
+    nodes.insert(seed, measure_seed(frame, grid, seed, start)?);
+    let refused = grow(frame, grid, &mut nodes, seed)?;
     attempt.coarse = nodes
         .iter()
         .map(|(&n, node)| (grid.point(n), node.quality))
@@ -1058,12 +1165,13 @@ fn walk(
 /// The coarse node where the global carriers read best, and their quality
 /// there. Only nodes away from the frame edge are tried, where the window is
 /// whole and the frequency probe has room.
-fn best_seed(
-    image: &Image,
+fn best_seed<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     start: [[Real; 2]; 2],
     period: Real,
 ) -> Result<(GridNode, Real), MeasureError> {
+    let image = &frame.image;
     let sigma = COARSE_WINDOW * period;
     let start_planes = planes(start);
     let margin = (2.0 * sigma).ceil() as usize;
@@ -1074,26 +1182,25 @@ fn best_seed(
             x >= margin && y >= margin && x + margin < image.width && y + margin < image.height
         })
         .collect();
-    let seeds: Vec<(GridNode, Real)> = candidates
-        .into_par_iter()
-        .map(|node| {
+    let windows: Vec<DemodWindow> = candidates
+        .iter()
+        .map(|&node| {
             let (x, y) = grid.pixel(node);
-            (
-                node,
-                demodulate(image, x, y, &start_planes, sigma).quality(),
-            )
+            window(x, y, &start_planes, sigma)
         })
         .collect();
-    seeds
+    let found = frame.demodulate(&windows)?;
+    candidates
         .into_iter()
+        .zip(found.iter().map(Demod::quality))
         .max_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or(MeasureError::NoBoard)
 }
 
 /// The seed node: its local frequency refined from the global carriers over
 /// three probes, then its phase against it.
-fn measure_seed(
-    image: &Image,
+fn measure_seed<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     seed: GridNode,
     start: [[Real; 2]; 2],
@@ -1101,16 +1208,14 @@ fn measure_seed(
     let (sx, sy) = grid.pixel(seed);
     let mut k = start;
     for _ in 0..3 {
-        k = local_frequency(image, sx, sy, &planes(k)).ok_or(MeasureError::NoBoard)?;
+        let expected = planes(k);
+        let probes =
+            frequency_probes(&frame.image, sx, sy, &expected).ok_or(MeasureError::NoBoard)?;
+        k = local_frequency(&expected, &probes, &frame.demodulate(&probes)?);
     }
     let carriers = planes(k);
-    let found = demodulate(
-        image,
-        sx,
-        sy,
-        &carriers,
-        COARSE_WINDOW * period_of(&carriers),
-    );
+    let sigma = COARSE_WINDOW * period_of(&carriers);
+    let found = frame.demodulate(&[window(sx, sy, &carriers, sigma)])?[0];
     Ok(Node {
         phase: found.phase,
         k,
@@ -1122,12 +1227,12 @@ fn measure_seed(
 /// is reached from its best-quality neighbour already in the walk; a node
 /// refused [`WALK_TRIES`] times is given up. Returns the refused nodes with
 /// how many times each was.
-fn grow(
-    image: &Image,
+fn grow<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     nodes: &mut HashMap<GridNode, Node>,
     seed: GridNode,
-) -> HashMap<GridNode, u8> {
+) -> Result<HashMap<GridNode, u8>, MeasureError> {
     let mut refused: HashMap<GridNode, u8> = HashMap::new();
     let mut fresh = vec![seed];
     while !fresh.is_empty() {
@@ -1141,50 +1246,110 @@ fn grow(
         frontier.sort_unstable();
         frontier.dedup();
 
-        let measured: Vec<(GridNode, Option<Node>)> = frontier
-            .par_iter()
+        let steps: Vec<Step> = frontier
+            .iter()
             .map(|&target| {
-                let parent = grid
+                let (from, parent) = grid
                     .neighbours(target)
-                    .filter_map(|n| nodes.get(&n).map(|node| (n, node)))
+                    .filter_map(|n| nodes.get(&n).map(|node| (n, *node)))
                     .max_by(|a, b| a.1.quality.total_cmp(&b.1.quality))
                     .expect("frontier nodes touch the walk");
-                (target, step_to(image, grid, parent, target))
+                Step::new(grid, from, parent, target)
             })
             .collect();
+        let measured = step_all(frame, grid, &steps)?;
 
         fresh.clear();
-        for (target, node) in measured {
+        for (step, node) in steps.iter().zip(measured) {
             match node {
                 Some(node) => {
-                    nodes.insert(target, node);
-                    fresh.push(target);
+                    nodes.insert(step.target, node);
+                    fresh.push(step.target);
                 }
-                None => *refused.entry(target).or_insert(0) += 1,
+                None => *refused.entry(step.target).or_insert(0) += 1,
             }
         }
     }
-    refused
+    Ok(refused)
 }
 
-/// Measures `target` from its neighbour `from` in the walk: demodulates it
-/// against the parent's frequency, and unwraps its phase against the
-/// parent's, carried over with the mean of both frequencies. None when the
-/// carriers are faint there or the phase misses by more than a quarter turn.
-fn step_to(
-    image: &Image,
-    grid: &Grid,
-    (from, parent): (GridNode, &Node),
+/// A step of the walk, from `parent` at node `from` to `target`, and the
+/// window that measures it against the parent's frequency.
+struct Step {
+    from: GridNode,
+    parent: Node,
     target: GridNode,
-) -> Option<Node> {
-    let (x, y) = grid.pixel(target);
-    let expected = planes(parent.k);
-    let found = demodulate(image, x, y, &expected, COARSE_WINDOW * period_of(&expected));
-    if found.quality() < MIN_QUALITY {
-        return None;
+    expected: [Carrier; 2],
+    window: DemodWindow,
+}
+
+impl Step {
+    fn new(grid: &Grid, from: GridNode, parent: Node, target: GridNode) -> Self {
+        let (x, y) = grid.pixel(target);
+        let expected = planes(parent.k);
+        Self {
+            from,
+            parent,
+            target,
+            expected,
+            window: window(x, y, &expected, COARSE_WINDOW * period_of(&expected)),
+        }
     }
-    let k = local_frequency(image, x, y, &expected).unwrap_or(parent.k);
-    let (px, py) = grid.pixel(from);
+}
+
+/// Takes every step of a wave, in two batches: the targets, then the
+/// frequency probes of those whose carriers are clean. None for a step
+/// refused.
+fn step_all<D: LocalDemodulator>(
+    frame: &Frame<D>,
+    grid: &Grid,
+    steps: &[Step],
+) -> Result<Vec<Option<Node>>, MeasureError> {
+    let windows: Vec<DemodWindow> = steps.iter().map(|s| s.window).collect();
+    let found = frame.demodulate(&windows)?;
+    // Each clean target's probes, if they stay in the frame.
+    let probes: Vec<Option<[DemodWindow; 4]>> = steps
+        .iter()
+        .zip(&found)
+        .map(|(step, found)| {
+            if found.quality() < MIN_QUALITY {
+                return None;
+            }
+            let DemodWindow { x, y, .. } = step.window;
+            frequency_probes(&frame.image, x, y, &step.expected)
+        })
+        .collect();
+    let probe_windows: Vec<DemodWindow> = probes.iter().flatten().flatten().copied().collect();
+    let mut probed = frame.demodulate(&probe_windows)?.into_iter();
+    Ok(steps
+        .iter()
+        .zip(&found)
+        .zip(&probes)
+        .map(|((step, &found), probes)| {
+            if found.quality() < MIN_QUALITY {
+                return None;
+            }
+            let k = match probes {
+                Some(probes) => {
+                    let probed: Vec<Demod> = probed.by_ref().take(4).collect();
+                    local_frequency(&step.expected, probes, &probed)
+                }
+                None => step.parent.k,
+            };
+            step_to(grid, step, found, k)
+        })
+        .collect())
+}
+
+/// Measures `step.target` from its neighbour in the walk, given what its
+/// window found against the parent's frequency and its own local frequency
+/// `k`: unwraps its phase against the parent's, carried over with the mean
+/// of both frequencies. None when the phase misses by more than a quarter
+/// turn.
+fn step_to(grid: &Grid, step: &Step, found: Demod, k: [[Real; 2]; 2]) -> Option<Node> {
+    let parent = &step.parent;
+    let (x, y) = grid.pixel(step.target);
+    let (px, py) = grid.pixel(step.from);
     let (dx, dy) = (x as Real - px as Real, y as Real - py as Real);
     let mut phase = [0.0; 2];
     for c in 0..2 {
@@ -1330,12 +1495,23 @@ struct Sample {
 /// Demodulates each node against its predicted phase and local model. A node
 /// is kept when both carriers are clean and land within a sixth of a turn of
 /// the prediction.
-fn measure_fine(image: &Image, fine: &Grid, predictions: &[Prediction]) -> Vec<Sample> {
-    predictions
-        .par_iter()
-        .filter_map(|&(node, predicted, model)| {
+fn measure_fine<D: LocalDemodulator>(
+    frame: &Frame<D>,
+    fine: &Grid,
+    predictions: &[Prediction],
+) -> Result<Vec<Sample>, MeasureError> {
+    let windows: Vec<DemodWindow> = predictions
+        .iter()
+        .map(|&(node, _, model)| {
             let (x, y) = fine.pixel(node);
-            let found = demodulate(image, x, y, &model, FINE_WINDOW * period_of(&model));
+            window(x, y, &model, FINE_WINDOW * period_of(&model))
+        })
+        .collect();
+    let found = frame.demodulate(&windows)?;
+    Ok(predictions
+        .iter()
+        .zip(found)
+        .filter_map(|(&(node, predicted, model), found)| {
             if found.quality() < MIN_QUALITY {
                 return None;
             }
@@ -1355,7 +1531,7 @@ fn measure_fine(image: &Image, fine: &Grid, predictions: &[Prediction]) -> Vec<S
                 quality: found.quality(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// Measures one grayscale frame (row-major, `0.0..=1.0`).
@@ -1398,10 +1574,54 @@ pub fn measure_view_traced(
     measure(intensity, width, height, target, previous, images)
 }
 
+/// [`measure_view_traced`] with the windows demodulated on `demodulator`,
+/// a GPU say. The spectral search, the code and the restoration stay on the
+/// CPU.
+pub fn measure_view_traced_with<D: LocalDemodulator>(
+    demodulator: &D,
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    target: &Target,
+    previous: Option<&View>,
+    images: bool,
+) -> (Result<View, MeasureError>, Trace) {
+    measure_on(
+        demodulator,
+        intensity,
+        width,
+        height,
+        target,
+        previous,
+        images,
+    )
+}
+
+/// [`measure_on`] the CPU.
+fn measure(
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    target: &Target,
+    previous: Option<&View>,
+    images: bool,
+) -> (Result<View, MeasureError>, Trace) {
+    measure_on(
+        &CpuDemodulator,
+        intensity,
+        width,
+        height,
+        target,
+        previous,
+        images,
+    )
+}
+
 /// What the public `measure_view*` functions share: tries the previous
 /// frame's carriers, then each pair the spectral search finds, keeping the
 /// first view that reads the code, else the one with the most points.
-fn measure(
+fn measure_on<D: LocalDemodulator>(
+    demodulator: &D,
     intensity: &[f32],
     width: usize,
     height: usize,
@@ -1413,10 +1633,9 @@ fn measure(
     let Some(board) = target.printed() else {
         return (Err(MeasureError::UnsupportedOrder(target.order)), trace);
     };
-    let image = Image {
-        data: intensity,
-        width,
-        height,
+    let frame = match Frame::load(demodulator, intensity, width, height) {
+        Ok(frame) => frame,
+        Err(e) => return (Err(e), trace),
     };
     let follow = |carriers, from_previous, trace: &mut Trace| {
         let mut attempt = Attempt {
@@ -1424,7 +1643,7 @@ fn measure(
             kind: target.kind,
             ..Attempt::default()
         };
-        let view = measure_with(&image, carriers, target, &board, &mut attempt, images);
+        let view = measure_with(&frame, carriers, target, &board, &mut attempt, images);
         attempt.error = view.as_ref().err().copied();
         trace.attempts.push(attempt);
         view
@@ -1438,7 +1657,7 @@ fn measure(
     }
 
     let mut clock = Stopwatch::start();
-    let search = find_carriers(&image, images);
+    let search = find_carriers(&frame.image, images);
     trace.searched = true;
     trace.search_ms = clock.lap();
     trace.peaks = search.peaks;
@@ -1466,14 +1685,15 @@ fn measure(
 
 /// Follows one carrier pair through every stage of the module docs, recording
 /// each in `attempt`.
-fn measure_with(
-    image: &Image,
+fn measure_with<D: LocalDemodulator>(
+    frame: &Frame<D>,
     carriers: [[Real; 2]; 2],
     target: &Target,
     board: &Printed,
     attempt: &mut Attempt,
     images: bool,
 ) -> Result<View, MeasureError> {
+    let image = &frame.image;
     let (width, height) = (image.width, image.height);
     let period = period_of(&planes(carriers));
     attempt.carriers = carriers;
@@ -1487,7 +1707,7 @@ fn measure_with(
         ((COARSE_STEP * period).round() as usize).max(4),
     );
     attempt.coarse_step = coarse.step;
-    let nodes = walk(image, &coarse, carriers, period, attempt);
+    let nodes = walk(frame, &coarse, carriers, period, attempt);
     attempt.timings.push(("walk", clock.lap()));
     let nodes = nodes?;
     let patches = fit_patches(&coarse, &nodes);
@@ -1498,7 +1718,7 @@ fn measure_with(
     let predictions = predict_fine(&coarse, &patches, &fine);
     attempt.funnel.push(("predicted", predictions.len()));
     attempt.timings.push(("patches", clock.lap()));
-    let mut samples = measure_fine(image, &fine, &predictions);
+    let mut samples = measure_fine(frame, &fine, &predictions)?;
     attempt.funnel.push(("first pass", samples.len()));
     let predicted: Vec<_> = predictions.iter().map(|p| p.0).collect();
     attempt
@@ -1539,18 +1759,18 @@ fn measure_with(
         _ => (None, None),
     };
     attempt.defocus = defocus;
-    let clean = plain.as_deref().map_or(*image, |data| Image {
-        data,
-        width,
-        height,
-    });
     let first_pass = nodes_of(&samples);
-    let again: Vec<_> = samples.iter().map(|s| (s.node, s.phase, s.model)).collect();
-    samples = measure_fine(&clean, &fine, &again);
-    attempt.funnel.push(("restored", samples.len()));
-    attempt.timings.push(("restore", clock.lap()));
-
-    samples = refit(&clean, &fine, samples, attempt);
+    let mut remeasure = |clean: &Frame<D>| {
+        let again: Vec<_> = samples.iter().map(|s| (s.node, s.phase, s.model)).collect();
+        let samples = measure_fine(clean, &fine, &again)?;
+        attempt.funnel.push(("restored", samples.len()));
+        attempt.timings.push(("restore", clock.lap()));
+        refit(clean, &fine, samples, attempt)
+    };
+    samples = match plain.as_deref() {
+        Some(data) => remeasure(&Frame::load(frame.demodulator, data, width, height)?)?,
+        None => remeasure(frame)?,
+    };
     attempt
         .dropped
         .extend(dropped(&fine, &first_pass, &samples, "refit"));
@@ -1649,22 +1869,22 @@ fn samples_as_nodes(samples: &[Sample]) -> HashMap<GridNode, Node> {
 /// fine nodes, two periods either way, takes most of what is left of the
 /// window's curvature bias out (measured: a third of it remains after two
 /// passes).
-fn refit(
-    image: &Image,
+fn refit<D: LocalDemodulator>(
+    frame: &Frame<D>,
     fine: &Grid,
     mut samples: Vec<Sample>,
     attempt: &mut Attempt,
-) -> Vec<Sample> {
+) -> Result<Vec<Sample>, MeasureError> {
     for stage in REFIT_STAGES {
         let as_nodes = samples_as_nodes(&samples);
         let refitted: Vec<_> = samples
             .par_iter()
             .filter_map(|s| Some((s.node, s.phase, fit_patch(fine, &as_nodes, s.node)?.model)))
             .collect();
-        samples = measure_fine(image, fine, &refitted);
+        samples = measure_fine(frame, fine, &refitted)?;
         attempt.funnel.push((stage, samples.len()));
     }
-    samples
+    Ok(samples)
 }
 
 /// Drops the samples whose phase a window past the board may have pulled:
