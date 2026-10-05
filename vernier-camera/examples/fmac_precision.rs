@@ -15,6 +15,11 @@
 //! cargo run --release -p vernier-camera --example fmac_precision -- evaluate <dir>
 //! ```
 //!
+//! `dataset <dir>` writes a standalone calibration set instead: fifteen poses
+//! chosen to calibrate well, and the true camera in the file format
+//! `vernier calibrate` writes, to compare its output with. It renders with
+//! `<render-build>/render <dir>/fmac_camera.json <dir>/board.png <dir>/poses.csv <dir>`.
+//!
 //! `examples/fmac/` holds the renderer and how to build it.
 
 use std::path::Path;
@@ -80,6 +85,42 @@ fn calibration_poses() -> Vec<RigidPose> {
         .collect()
 }
 
+/// A calibration set of fifteen views: one nearly square on, the board
+/// tilted 35° about either axis, 25° about the diagonals pushed into each
+/// corner of the frame where distortion is strongest, 45° at four more
+/// angles further off, and two close views at the left and right edges.
+/// Turned about the optical axis differently each time, 270 to 380 mm off.
+fn dataset_poses() -> Vec<RigidPose> {
+    let mut poses = vec![pose(8.0, 30.0, 10.0, (0.0, 0.0), 320.0)];
+    for (i, axis) in [0.0, 90.0, 180.0, 270.0].into_iter().enumerate() {
+        poses.push(pose(15.0 + 40.0 * i as f64, axis, 35.0, (0.0, 0.0), 330.0));
+    }
+    for (i, (axis, offset)) in [
+        (45.0, (55.0, 35.0)),
+        (135.0, (-55.0, 35.0)),
+        (225.0, (-55.0, -35.0)),
+        (315.0, (55.0, -35.0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        poses.push(pose(55.0 * i as f64 - 20.0, axis, 25.0, offset, 290.0));
+    }
+    for (i, axis) in [30.0, 120.0, 210.0, 300.0].into_iter().enumerate() {
+        let distance = 360.0 + 7.0 * i as f64;
+        poses.push(pose(
+            70.0 * i as f64 - 35.0,
+            axis,
+            45.0,
+            (0.0, 0.0),
+            distance,
+        ));
+    }
+    poses.push(pose(100.0, 10.0, 20.0, (-70.0, 5.0), 270.0));
+    poses.push(pose(-60.0, 200.0, 20.0, (70.0, -5.0), 275.0));
+    poses
+}
+
 /// Test poses: 220 to 450 mm, square on to 50°.
 fn test_poses() -> Vec<RigidPose> {
     let mut poses = Vec::new();
@@ -121,6 +162,37 @@ fn write_poses(path: &Path, prefix: &str, poses: &[RigidPose]) {
 /// Writes into `dir` what fmac renders from: the board bitmap, the camera and
 /// the two sets of poses.
 fn prepare(dir: &Path) {
+    write_board(dir, "camera.json");
+    write_poses(
+        &dir.join("calibration.csv"),
+        "calibration",
+        &calibration_poses(),
+    );
+    write_poses(&dir.join("test.csv"), "test", &test_poses());
+    eprintln!(
+        "wrote the board, the camera and the poses to {}",
+        dir.display()
+    );
+}
+
+fn dataset(dir: &Path) {
+    write_board(dir, "fmac_camera.json");
+    write_poses(&dir.join("poses.csv"), "view", &dataset_poses());
+    let c = camera();
+    let d = &c.distortion;
+    let truth = format!(
+        "{{\n  \"model\": \"pinhole\",\n  \"width\": {WIDTH},\n  \"height\": {HEIGHT},\n  \"fx\": {:?},\n  \"fy\": {:?},\n  \"cx\": {:?},\n  \"cy\": {:?},\n  \"distortion\": [{:?}, {:?}, {:?}, {:?}, {:?}]\n}}\n",
+        c.fx, c.fy, c.cx, c.cy, d[0], d[1], d[2], d[3], d[4]
+    );
+    std::fs::write(dir.join("truth.json"), truth).unwrap();
+    eprintln!(
+        "wrote the board, the camera, its truth and the poses to {}",
+        dir.display()
+    );
+}
+
+/// The board bitmap, and fmac's camera file as `camera_file`.
+fn write_board(dir: &Path, camera_file: &str) {
     std::fs::create_dir_all(dir).unwrap();
     // The board in the pattern's own frame: bitmap pixel (c, r) has its
     // centre at (c − n/2, r − m/2) bitmap pixels from the origin.
@@ -183,17 +255,7 @@ fn prepare(dir: &Path) {
         (n as f64 / 2.0 + 0.5) * pixel_mm,
         (m as f64 / 2.0 + 0.5) * pixel_mm,
     );
-    std::fs::write(dir.join("camera.json"), json).unwrap();
-    write_poses(
-        &dir.join("calibration.csv"),
-        "calibration",
-        &calibration_poses(),
-    );
-    write_poses(&dir.join("test.csv"), "test", &test_poses());
-    eprintln!(
-        "wrote the board, the camera and the poses to {}",
-        dir.display()
-    );
+    std::fs::write(dir.join(camera_file), json).unwrap();
 }
 
 /// Loads one of fmac's pictures as intensities in `0..=1`, with Gaussian noise
@@ -449,6 +511,7 @@ fn main() {
     match (args.get(1).map(String::as_str), args.get(2)) {
         (Some("prepare"), Some(dir)) => prepare(Path::new(dir)),
         (Some("evaluate"), Some(dir)) => evaluate(Path::new(dir)),
-        _ => eprintln!("usage: fmac_precision (prepare | evaluate) <dir>"),
+        (Some("dataset"), Some(dir)) => dataset(Path::new(dir)),
+        _ => eprintln!("usage: fmac_precision (prepare | evaluate | dataset) <dir>"),
     }
 }
