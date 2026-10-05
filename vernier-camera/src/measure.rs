@@ -120,6 +120,9 @@ pub struct View {
     pub code: Result<CheckerboardCode, CheckerboardError>,
     /// Carrier period where the walk started, in pixels.
     pub period: Real,
+    /// Defocus fitted while painting the code back, Gaussian sigma in pixels;
+    /// the next frame's blur fit starts from it. None without a code.
+    pub defocus: Option<Real>,
     /// The carrier pair the walk started from, for the next frame.
     carriers: [[Real; 2]; 2],
 }
@@ -225,6 +228,8 @@ pub struct Attempt {
     pub restored: Option<Vec<f32>>,
     /// Defocus fitted while painting them back, Gaussian sigma in pixels.
     pub defocus: Option<Real>,
+    /// Times the blur fit evaluated its misfit, a measure of its cost.
+    pub defocus_misfits: usize,
 }
 
 impl Attempt {
@@ -1593,12 +1598,15 @@ fn measure_on<D: LocalDemodulator>(
         Ok(frame) => frame,
         Err(e) => return (Err(e), trace),
     };
+    // The blur changes little from one frame to the next, so the fit starts
+    // from the previous one's.
+    let hint = previous.and_then(|p| p.defocus);
     let follow = |carriers, from_previous, trace: &mut Trace| {
         let mut attempt = Attempt {
             from_previous,
             ..Attempt::default()
         };
-        let view = measure_with(&frame, carriers, target, &board, &mut attempt, images);
+        let view = measure_with(&frame, carriers, hint, target, &board, &mut attempt, images);
         attempt.error = view.as_ref().err().copied();
         trace.attempts.push(attempt);
         view
@@ -1639,10 +1647,11 @@ fn measure_on<D: LocalDemodulator>(
 }
 
 /// Follows one carrier pair through every stage of the module docs, recording
-/// each in `attempt`.
+/// each in `attempt`. `defocus_hint` is where the blur fit starts looking.
 fn measure_with<D: LocalDemodulator>(
     frame: &Frame<D>,
     carriers: [[Real; 2]; 2],
+    defocus_hint: Option<Real>,
     target: &Target,
     board: &Checkerboard,
     attempt: &mut Attempt,
@@ -1694,12 +1703,14 @@ fn measure_with<D: LocalDemodulator>(
     // paint those squares back and measure the plain checkerboard.
     let (plain, defocus) = match code.as_ref() {
         Ok(code) => {
-            let (restored, defocus) = restore(image, &maps, code, board, period);
+            let (restored, defocus) = restore(image, &maps, code, board, period, defocus_hint);
             (Some(restored), defocus)
         }
         Err(_) => (None, None),
     };
-    attempt.defocus = defocus;
+    attempt.defocus = defocus.map(|d| d.0);
+    attempt.defocus_misfits = defocus.map_or(0, |d| d.1);
+    let defocus = attempt.defocus;
     let first_pass = nodes_of(&samples);
     let mut remeasure = |clean: &Frame<D>| {
         let again: Vec<_> = samples.iter().map(|s| (s.node, s.phase, s.model)).collect();
@@ -1733,6 +1744,7 @@ fn measure_with<D: LocalDemodulator>(
         points,
         code,
         period,
+        defocus,
         carriers,
     })
 }
@@ -2025,20 +2037,22 @@ fn read_code(
 /// the local mean (0.028 to 0.013 px on clean tilted views); out of focus the
 /// mirror would also leave a halo where a square spreads past its edge. The
 /// mirror stays for when the fit cannot be made. Also gives the defocus
-/// found, Gaussian sigma in pixels.
+/// found, Gaussian sigma in pixels, and the misfits its search evaluated;
+/// the search starts from `hint` when there is one.
 fn restore(
     image: &Image,
     maps: &[[Real; 3]],
     code: &CheckerboardCode,
     board: &Checkerboard,
     period: Real,
-) -> (Vec<f32>, Option<Real>) {
+    hint: Option<Real>,
+) -> (Vec<f32>, Option<(Real, usize)>) {
     let fit = CodeModel::new(maps, code, board)
-        .and_then(|model| fit_defocus(image, maps, &model, period).map(|fit| (model, fit)));
+        .and_then(|model| fit_defocus(image, maps, &model, period, hint).map(|fit| (model, fit)));
     match fit {
         Some((model, defocus)) => {
-            let sigma = defocus.sigma;
-            (restore_blurred(image, maps, &model, &defocus), Some(sigma))
+            let found = (defocus.sigma, defocus.misfits);
+            (restore_blurred(image, maps, &model, &defocus), Some(found))
         }
         None => (restore_by_mirroring(image, maps, code, board, period), None),
     }
@@ -2180,47 +2194,71 @@ impl CodeModel {
         // of one along `u` and one along `v`, measured in squares here.
         let sigma_squares = sigma / side;
         let reach = ((3.0 * sigma_squares).ceil() as i64 + 1).min(BLUR_REACH);
-        let spread = |t: Real| blurred_square(t, sigma_squares);
-        let along_u: Vec<Real> = (-reach..=reach)
-            .map(|a| spread(u - (ru + a) as Real))
-            .collect();
-        let along_v: Vec<Real> = (-reach..=reach)
-            .map(|b| spread(v - (rv + b) as Real))
-            .collect();
-        let sign = |k: i64| if k.rem_euclid(2) == 0 { 1.0 } else { -1.0 };
+        let span = (2 * reach + 1) as usize;
+        let along_u = blurred_squares(u - ru as Real, reach, sigma_squares);
+        let along_v = blurred_squares(v - rv as Real, reach, sigma_squares);
         // A blurred ±1 square wave along one axis.
-        let wave = |r: i64, along: &[Real]| {
-            along
-                .iter()
-                .enumerate()
-                .map(|(a, &f)| sign(r + a as i64 - reach) * f)
-                .sum::<Real>()
+        let wave = |r: i64, along: &[Real; SPAN]| {
+            let mut sign = if (r - reach).rem_euclid(2) == 0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let mut sum = 0.0;
+            for &f in &along[..span] {
+                sum += sign * f;
+                sign = -sign;
+            }
+            sum
         };
         let plain = wave(ru, &along_u) * wave(rv, &along_v);
         let mut coded = 0.0;
-        for (b, &fv) in along_v.iter().enumerate() {
-            for (a, &fu) in along_u.iter().enumerate() {
+        for (b, &fv) in along_v[..span].iter().enumerate() {
+            let mut row = 0.0;
+            for (a, &fu) in along_u[..span].iter().enumerate() {
                 let c = self.inverted(ru + a as i64 - reach, rv + b as i64 - reach);
                 if c != 0 {
-                    coded += c as Real * fu * fv;
+                    row += c as Real * fu;
                 }
             }
+            coded += row * fv;
         }
         Some((plain, coded))
     }
 }
 
-/// A one-square-wide box, `0..1`, blurred by a Gaussian of `s` squares, at
-/// `t` squares from its centre.
-fn blurred_square(t: Real, s: Real) -> Real {
+/// Squares a blurred square's spread is held for: [`BLUR_REACH`] either way.
+const SPAN: usize = 2 * BLUR_REACH as usize + 1;
+
+/// One-square-wide boxes centred `−reach..=reach` squares from a pixel that
+/// sits `t` squares off the nearest centre, blurred by a Gaussian of `s`
+/// squares: how much of each the pixel sees. Neighbouring boxes share an
+/// edge, so this takes `2·reach + 2` normal CDFs, not twice as many.
+fn blurred_squares(t: Real, reach: i64, s: Real) -> [Real; SPAN] {
+    let mut out = [0.0; SPAN];
     if s < 1e-3 {
-        return if t.abs() < 0.5 { 1.0 } else { 0.0 };
+        out[reach as usize] = 1.0;
+        return out;
     }
-    normal_cdf((t + 0.5) / s) - normal_cdf((t - 0.5) / s)
+    // Box `k` is centred `k − reach` squares from the nearest centre, so its
+    // near edge is `t + reach − k + ½` squares behind the pixel.
+    let edge = |k: i64| normal_cdf((t + (reach - k) as Real + 0.5) / s);
+    let mut before = edge(0);
+    for (k, f) in out[..(2 * reach + 1) as usize].iter_mut().enumerate() {
+        let after = edge(k as i64 + 1);
+        *f = before - after;
+        before = after;
+    }
+    out
 }
 
 /// The standard normal cumulative distribution.
 fn normal_cdf(x: Real) -> Real {
+    // Past 6 deviations it is within 1e-9 of its limit, closer than `erf`
+    // gets anyway, and most of a sharp board's square edges are that far.
+    if x.abs() > 6.0 {
+        return if x > 0.0 { 1.0 } else { 0.0 };
+    }
     0.5 * (1.0 + erf(x / core::f64::consts::SQRT_2))
 }
 
@@ -2239,6 +2277,8 @@ fn erf(x: Real) -> Real {
 struct Defocus {
     /// Gaussian sigma, pixels.
     sigma: Real,
+    /// Misfits the search for it evaluated.
+    misfits: usize,
     /// Half the white-to-black step, per tile, for [`Defocus::contrast`].
     tiles: Vec<Real>,
     /// Tile side, in pixels.
@@ -2275,38 +2315,62 @@ fn fit_line(s: &LineSums) -> Option<(Real, Real)> {
     (n >= 20.0 && mm > 1e-9 * n).then(|| (mi / mm, ii - mi * mi / mm))
 }
 
+/// One in this many of the sampled pixels takes part in the search for the
+/// sigma; the contrast map at the sigma found uses them all.
+const SEARCH_SHARE: u64 = 3;
+
+/// A pixel the fit samples: where it is, its tile, its phase maps and its
+/// intensity.
+struct Site {
+    pixel: usize,
+    tile: usize,
+    map: [Real; 3],
+    value: Real,
+}
+
 /// Fits the defocus: the sigma at which `mean + h·(plain − 2·coded)`, with a
 /// mean and a contrast `h` free per tile of four periods, best matches the
-/// frame on a sample of its pixels.
+/// frame on a sample of its pixels. The search starts from `hint`, the
+/// previous frame's sigma, when there is one.
 fn fit_defocus(
     image: &Image,
     maps: &[[Real; 3]],
     model: &CodeModel,
     period: Real,
+    hint: Option<Real>,
 ) -> Option<Defocus> {
     let w = image.width;
     let tile = ((4.0 * period).round() as usize).max(8);
     let (columns, rows) = (w.div_ceil(tile), image.height.div_ceil(tile));
     let stride = ((0.25 * period).round() as usize).max(1);
-    let sites: Vec<(usize, usize)> = (0..image.height)
+    let sites: Vec<Site> = (0..image.height)
         .step_by(stride)
         .flat_map(|y| (0..w).step_by(stride).map(move |x| (x, y)))
         .filter(|&(x, y)| maps[y * w + x][0].is_finite())
+        .map(|(x, y)| Site {
+            pixel: y * w + x,
+            tile: (y / tile) * columns + x / tile,
+            map: maps[y * w + x],
+            value: image.data[y * w + x] as Real,
+        })
         .collect();
     if sites.len() < 200 {
         return None;
     }
-    let tally = |sigma: Real| -> Vec<LineSums> {
+    // Picked by a hash of the position rather than every so many, which
+    // could beat against the squares.
+    let all: Vec<&Site> = sites.iter().collect();
+    let search: Vec<&Site> = sites
+        .iter()
+        .filter(|s| scramble(s.pixel as u64).is_multiple_of(SEARCH_SHARE))
+        .collect();
+    let tally = |sites: &[&Site], sigma: Real| -> Vec<LineSums> {
         let mut sums = vec![[0.0; 6]; columns * rows];
         let values: Vec<(usize, Real, Real)> = sites
             .par_iter()
-            .filter_map(|&(x, y)| {
-                let (plain, coded) = model.at(maps[y * w + x], sigma)?;
-                Some((
-                    (y / tile) * columns + x / tile,
-                    plain - 2.0 * coded,
-                    image.data[y * w + x] as Real,
-                ))
+            .filter_map(|site| {
+                let (plain, coded) = model.at(site.map, sigma)?;
+                Some((site.tile, plain - 2.0 * coded, site.value))
             })
             .collect();
         for (tile_index, m, i) in values {
@@ -2321,15 +2385,15 @@ fn fit_defocus(
         sums
     };
     let misfit = |sigma: Real| -> Real {
-        tally(sigma)
+        tally(&search, sigma)
             .iter()
             .filter_map(fit_line)
             .map(|(_, residual)| residual)
             .sum()
     };
 
-    let sigma = minimize_misfit(period, misfit);
-    let fits: Vec<Option<Real>> = tally(sigma)
+    let (sigma, misfits) = minimize_misfit(period, hint, misfit);
+    let fits: Vec<Option<Real>> = tally(&all, sigma)
         .iter()
         .map(|s| fit_line(s).map(|l| l.0))
         .collect();
@@ -2341,6 +2405,7 @@ fn fit_defocus(
     let overall = found.iter().sum::<Real>() / found.len() as Real;
     Some(Defocus {
         sigma,
+        misfits,
         tiles: fits.iter().map(|f| f.unwrap_or(overall)).collect(),
         tile,
         columns,
@@ -2348,32 +2413,140 @@ fn fit_defocus(
     })
 }
 
-/// The sigma of least `misfit`, coarse to fine over 0 to half a period, where
-/// the carrier is all but gone: ten even steps, then five halvings either
-/// side of the best.
-fn minimize_misfit(period: Real, misfit: impl Fn(Real) -> Real) -> Real {
-    let mut best = (0.0, misfit(0.0));
-    let steps = 10;
-    for k in 1..=steps {
-        let sigma = 0.5 * period * k as Real / steps as Real;
-        let m = misfit(sigma);
-        if m < best.1 {
-            best = (sigma, m);
+/// SplitMix64's finalizer: spreads a value's bits over the whole word.
+fn scramble(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Even steps of the search without a hint, over 0 to half a period.
+const SIGMA_STEPS: usize = 7;
+
+/// The sigma of least `misfit` over 0 to half a period, where the carrier is
+/// all but gone, and how many misfits it took. The misfit is smooth in sigma,
+/// so once a minimum is bracketed Brent's method closes in on it in a handful
+/// of steps. The bracket is `hint` and a step either side of it, a sixth or
+/// so of the sigma, when the hint's misfit is the least of the three; else
+/// the least of [`SIGMA_STEPS`] even steps over the whole range and its
+/// neighbours.
+fn minimize_misfit(
+    period: Real,
+    hint: Option<Real>,
+    misfit: impl Fn(Real) -> Real,
+) -> (Real, usize) {
+    let top = 0.5 * period;
+    let calls = std::cell::Cell::new(0);
+    let f = |sigma: Real| {
+        calls.set(calls.get() + 1);
+        misfit(sigma)
+    };
+    let least = |values: &[Real]| {
+        (0..values.len())
+            .min_by(|&a, &b| values[a].total_cmp(&values[b]))
+            .unwrap_or(0)
+    };
+    let around_hint = hint.filter(|h| (0.0..top).contains(h)).and_then(|h| {
+        let step = 0.15 * h + 0.02 * period;
+        let points = [(h - step).max(0.0), h, (h + step).min(top)];
+        let values = points.map(&f);
+        let best = least(&values);
+        // Bracketed when the hint is the least, or when the least is at 0,
+        // which the sigma cannot go below.
+        (best == 1 || points[best] == 0.0).then_some((points, values, best))
+    });
+    let (points, values, best) = around_hint.unwrap_or_else(|| {
+        let grid: Vec<Real> = (0..=SIGMA_STEPS)
+            .map(|k| top * k as Real / SIGMA_STEPS as Real)
+            .collect();
+        let values: Vec<Real> = grid.iter().map(|&s| f(s)).collect();
+        let best = least(&values);
+        let (lo, hi) = (best.saturating_sub(1), (best + 1).min(SIGMA_STEPS));
+        let bracket = [lo, best, hi];
+        (bracket.map(|i| grid[i]), bracket.map(|i| values[i]), 1)
+    });
+    let sigma = brent(points, values, best, 5e-4 * period, f);
+    (sigma, calls.get())
+}
+
+/// Brent's minimization of `f` over `points[0]..points[2]`, to within about
+/// `tolerance`, from those three points already evaluated, `points[best]` the
+/// least.
+fn brent(
+    points: [Real; 3],
+    values: [Real; 3],
+    best: usize,
+    tolerance: Real,
+    f: impl Fn(Real) -> Real,
+) -> Real {
+    /// The golden section's smaller part, `(3 − √5)/2`.
+    const GOLDEN: Real = 0.381_966_011_250_105_1;
+    let (mut a, mut b) = (points[0], points[2]);
+    let (mut x, mut fx) = (points[best], values[best]);
+    // The other two, the next best first, so that the first step can already
+    // be a parabola through all three.
+    let mut rest: Vec<usize> = (0..3).filter(|&i| i != best).collect();
+    rest.sort_by(|&i, &j| values[i].total_cmp(&values[j]));
+    let (mut w, mut fw) = (points[rest[0]], values[rest[0]]);
+    let (mut v, mut fv) = (points[rest[1]], values[rest[1]]);
+    // The last step, and the one before it.
+    let (mut d, mut e): (Real, Real) = (0.0, b - a);
+    for _ in 0..40 {
+        let middle = 0.5 * (a + b);
+        if (x - middle).abs() <= 2.0 * tolerance - 0.5 * (b - a) {
+            break;
         }
-    }
-    let mut step = 0.5 * period / steps as Real;
-    for _ in 0..5 {
-        step *= 0.5;
-        for sigma in [best.0 - step, best.0 + step] {
-            if sigma >= 0.0 {
-                let m = misfit(sigma);
-                if m < best.1 {
-                    best = (sigma, m);
+        let mut parabolic = false;
+        if e.abs() > tolerance && w != x && v != x && v != w {
+            let r = (x - w) * (fx - fv);
+            let q = (x - v) * (fx - fw);
+            let (mut p, mut q) = ((x - v) * q - (x - w) * r, 2.0 * (q - r));
+            if q > 0.0 {
+                p = -p;
+            } else {
+                q = -q;
+            }
+            if p.abs() < (0.5 * q * e).abs() && p > q * (a - x) && p < q * (b - x) {
+                e = d;
+                d = p / q;
+                let u = x + d;
+                if u - a < 2.0 * tolerance || b - u < 2.0 * tolerance {
+                    d = if x < middle { tolerance } else { -tolerance };
                 }
+                parabolic = true;
+            }
+        }
+        if !parabolic {
+            e = if x < middle { b - x } else { a - x };
+            d = GOLDEN * e;
+        }
+        let u = if d.abs() >= tolerance {
+            x + d
+        } else {
+            x + tolerance.copysign(d)
+        };
+        let fu = f(u);
+        if fu <= fx {
+            if u < x {
+                b = x;
+            } else {
+                a = x;
+            }
+            (v, fv, w, fw, x, fx) = (w, fw, x, fx, u, fu);
+        } else {
+            if u < x {
+                a = u;
+            } else {
+                b = u;
+            }
+            if fu <= fw || w == x {
+                (v, fv, w, fw) = (w, fw, u, fu);
+            } else if fu <= fv || v == x || v == w {
+                (v, fv) = (u, fu);
             }
         }
     }
-    best.0
+    x
 }
 
 /// Separable Gaussian blur of `sigma` pixels, normalized at the frame edge.
@@ -2422,4 +2595,57 @@ fn blur_with(w: usize, h: usize, sigma: Real, at: impl Fn(usize) -> Real + Sync)
         out.iter_mut().for_each(|v| *v /= weight);
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A misfit shaped like the fit's: smooth, least at `at`, flattening off
+    /// towards large sigma.
+    fn misfit(at: Real) -> impl Fn(Real) -> Real {
+        move |s: Real| 1.0 - (-((s - at) / (0.6 + 0.4 * at)).powi(2)).exp()
+    }
+
+    #[test]
+    fn search_finds_the_least_misfit() {
+        let period = 11.3;
+        for at in [0.0, 0.3, 1.04, 2.5, 4.9] {
+            let (sigma, calls) = minimize_misfit(period, None, misfit(at));
+            assert!((sigma - at).abs() < 0.02, "{at}: found {sigma}");
+            assert!(calls <= 16, "{at}: {calls} misfits");
+        }
+    }
+
+    #[test]
+    fn hint_saves_misfits_and_survives_being_wrong() {
+        let period = 11.3;
+        for at in [0.3, 1.04, 2.5, 4.9] {
+            let (_, cold) = minimize_misfit(period, None, misfit(at));
+            let (sigma, warm) = minimize_misfit(period, Some(at * 1.05), misfit(at));
+            assert!((sigma - at).abs() < 0.02, "{at}: found {sigma}");
+            assert!(warm < cold, "{at}: {warm} misfits warm, {cold} cold");
+            // A hint far off falls back on the whole range.
+            let (sigma, _) = minimize_misfit(period, Some(at + 2.0), misfit(at));
+            assert!(
+                (sigma - at).abs() < 0.02,
+                "{at}: found {sigma} from a wrong hint"
+            );
+        }
+    }
+
+    #[test]
+    fn blurred_squares_tile_the_line() {
+        // The boxes cover the whole line, so what a pixel sees of them sums
+        // to one, and each matches its box blurred on its own.
+        for (t, s) in [(0.0, 0.05), (0.3, 0.4), (-0.45, 0.9)] {
+            let spread = blurred_squares(t, BLUR_REACH, s);
+            assert!((spread.iter().sum::<Real>() - 1.0).abs() < 1e-3, "{t} {s}");
+            for (k, &f) in spread.iter().enumerate() {
+                let d = t - (k as i64 - BLUR_REACH) as Real;
+                let alone = normal_cdf((d + 0.5) / s) - normal_cdf((d - 0.5) / s);
+                assert!((f - alone).abs() < 1e-12);
+            }
+        }
+    }
 }
