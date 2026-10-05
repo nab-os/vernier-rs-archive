@@ -22,7 +22,7 @@ use commands::detect_megarena::DetectMegarena;
 use commands::render_checkerboard;
 use commands::render_megarena;
 use commands::roundtrip_megarena::RoundtripMegarena;
-use commands::{solve_pnp, track, undistort, webcam};
+use commands::{phone, solve_pnp, track, undistort, webcam};
 use std::path::PathBuf;
 
 /// Ends the program with the error, if any, the way the camera commands
@@ -87,6 +87,16 @@ fn main() {
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
                 save_frames: a.save_frames.as_ref().map(PathBuf::from),
+            })
+        })()),
+        Command::Phone(a) => exit_on_error((|| {
+            phone::run(&phone::PhoneArgs {
+                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                camera: PathBuf::from(&a.camera),
+                views: a.views.max(2),
+                model: calibrate::model(&a.model)?,
+                port: a.port,
+                csv: a.csv.as_ref().map(PathBuf::from),
             })
         })()),
         Command::SolvePnp(a) => exit_on_error((|| {
