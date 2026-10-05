@@ -51,6 +51,16 @@ fn camera() -> Camera {
     camera
 }
 
+/// The camera of the `dataset` set: 512×512, the size used across vernier,
+/// with about the field of view of [`camera`] across. Still a 6 mm lens, so
+/// 15 µm pixels.
+fn dataset_camera() -> Camera {
+    let mut camera = Camera::ideal(Model::Pinhole, 512, 512, 400.0, 400.0, 256.3, 255.6);
+    camera.distortion = vec![-0.12, 0.08, 0.0005, -0.0003, 0.0];
+    camera
+}
+const DATASET_PIXEL_PITCH: f64 = 0.015;
+
 fn target() -> Target {
     Target::new(SQUARE, ORDER)
 }
@@ -96,10 +106,10 @@ fn dataset_poses() -> Vec<RigidPose> {
         poses.push(pose(15.0 + 40.0 * i as f64, axis, 35.0, (0.0, 0.0), 330.0));
     }
     for (i, (axis, offset)) in [
-        (45.0, (55.0, 35.0)),
-        (135.0, (-55.0, 35.0)),
-        (225.0, (-55.0, -35.0)),
-        (315.0, (55.0, -35.0)),
+        (45.0, (70.0, 70.0)),
+        (135.0, (-70.0, 70.0)),
+        (225.0, (-70.0, -70.0)),
+        (315.0, (70.0, -70.0)),
     ]
     .into_iter()
     .enumerate()
@@ -116,8 +126,8 @@ fn dataset_poses() -> Vec<RigidPose> {
             distance,
         ));
     }
-    poses.push(pose(100.0, 10.0, 20.0, (-70.0, 5.0), 270.0));
-    poses.push(pose(-60.0, 200.0, 20.0, (70.0, -5.0), 275.0));
+    poses.push(pose(100.0, 10.0, 20.0, (-90.0, 5.0), 270.0));
+    poses.push(pose(-60.0, 200.0, 20.0, (90.0, -5.0), 275.0));
     poses
 }
 
@@ -162,7 +172,7 @@ fn write_poses(path: &Path, prefix: &str, poses: &[RigidPose]) {
 /// Writes into `dir` what fmac renders from: the board bitmap, the camera and
 /// the two sets of poses.
 fn prepare(dir: &Path) {
-    write_board(dir, "camera.json");
+    write_board(dir, "camera.json", &camera(), PIXEL_PITCH);
     write_poses(
         &dir.join("calibration.csv"),
         "calibration",
@@ -176,13 +186,13 @@ fn prepare(dir: &Path) {
 }
 
 fn dataset(dir: &Path) {
-    write_board(dir, "fmac_camera.json");
+    let c = dataset_camera();
+    write_board(dir, "fmac_camera.json", &c, DATASET_PIXEL_PITCH);
     write_poses(&dir.join("poses.csv"), "view", &dataset_poses());
-    let c = camera();
     let d = &c.distortion;
     let truth = format!(
-        "{{\n  \"model\": \"pinhole\",\n  \"width\": {WIDTH},\n  \"height\": {HEIGHT},\n  \"fx\": {:?},\n  \"fy\": {:?},\n  \"cx\": {:?},\n  \"cy\": {:?},\n  \"distortion\": [{:?}, {:?}, {:?}, {:?}, {:?}]\n}}\n",
-        c.fx, c.fy, c.cx, c.cy, d[0], d[1], d[2], d[3], d[4]
+        "{{\n  \"model\": \"pinhole\",\n  \"width\": {},\n  \"height\": {},\n  \"fx\": {:?},\n  \"fy\": {:?},\n  \"cx\": {:?},\n  \"cy\": {:?},\n  \"distortion\": [{:?}, {:?}, {:?}, {:?}, {:?}]\n}}\n",
+        c.width, c.height, c.fx, c.fy, c.cx, c.cy, d[0], d[1], d[2], d[3], d[4]
     );
     std::fs::write(dir.join("truth.json"), truth).unwrap();
     eprintln!(
@@ -191,8 +201,8 @@ fn dataset(dir: &Path) {
     );
 }
 
-/// The board bitmap, and fmac's camera file as `camera_file`.
-fn write_board(dir: &Path, camera_file: &str) {
+/// The board bitmap, and fmac's camera file for `c` as `camera_file`.
+fn write_board(dir: &Path, camera_file: &str, c: &Camera, pixel_pitch: f64) {
     std::fs::create_dir_all(dir).unwrap();
     // The board in the pattern's own frame: bitmap pixel (c, r) has its
     // centre at (c − n/2, r − m/2) bitmap pixels from the origin.
@@ -212,19 +222,18 @@ fn write_board(dir: &Path, camera_file: &str) {
     // origin, so with the origin half a pixel past the centre, its marker
     // frame is the board frame in millimetres.
     let pixel_mm = SQUARE / BITMAP_SQUARE as f64;
-    let c = camera();
     let d = &c.distortion;
     let json = format!(
         r#"{{
-    "image_width": {WIDTH},
-    "image_height": {HEIGHT},
+    "image_width": {},
+    "image_height": {},
     "camera_matrix": {{ "type_id": "opencv-matrix", "rows": 3, "cols": 3, "dt": "d",
         "data": [ {}, 0.0, {}, 0.0, {}, {}, 0.0, 0.0, 1.0 ] }},
     "distortion_coefficients": {{ "type_id": "opencv-matrix", "rows": 5, "cols": 1, "dt": "d",
         "data": [ {}, {}, {}, {}, {} ] }},
     "bit_depth": 8,
     "focus_distance": {FOCUS},
-    "pixel_pitch": {PIXEL_PITCH},
+    "pixel_pitch": {pixel_pitch},
     "f_number": {F_NUMBER},
     "f_number_max": {F_NUMBER},
     "f_number_min": {F_NUMBER},
@@ -241,6 +250,8 @@ fn write_board(dir: &Path, camera_file: &str) {
     "y_max": 0.0, "z_min": 200.0, "z_max": 500.0
 }}
 "#,
+        c.width,
+        c.height,
         c.fx,
         c.cx,
         c.fy,
