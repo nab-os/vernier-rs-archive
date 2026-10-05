@@ -17,6 +17,7 @@ graph TD
     spectral[vernier-spectral]
     pose[vernier-pose]
     detector[vernier-detector]
+    camera[vernier-camera]
     cli[vernier-cli]
     cabi[vernier-cabi]
     py[vernier-py]
@@ -43,6 +44,10 @@ graph TD
     detector --> cpu
     detector --> patterns
 
+    camera --> core
+    camera --> patterns
+    camera --> pose
+
     cabi --> core
     cabi --> cpu
     cabi -. "cuda" .-> cuda
@@ -62,6 +67,7 @@ graph TD
     cli --> spectral
     cli --> pose
     cli --> patterns
+    cli --> camera
 ```
 
 ## ASCII (arrows point downward = "depends on")
