@@ -22,6 +22,7 @@ pub enum Command {
     RenderMegarena(RenderMegarenaArgs),
     RoundtripMegarena(RoundtripMegarenaArgs),
     SolvePnp(SolvePnpArgs),
+    Track(TrackArgs),
     Undistort(UndistortArgs),
 }
 
@@ -405,4 +406,48 @@ pub struct UndistortArgs {
     /// the photo
     #[argh(positional)]
     pub image: String,
+}
+
+/// Follow the board's pose live: every frame is solved with a calibrated
+/// camera and the pose is traced on a page served on localhost.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "track")]
+pub struct TrackArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// side of one printed square, in the unit the pose should come out in
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera device, or any input ffmpeg can open such as a video file
+    /// (default: /dev/video0)
+    #[argh(option, default = "String::from(\"/dev/video0\")")]
+    pub device: String,
+
+    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    #[argh(option)]
+    pub format: Option<String>,
+
+    /// capture size asked of the camera; must match the calibration
+    /// (default: the calibration's size)
+    #[argh(option)]
+    pub video_size: Option<String>,
+
+    /// port of the page on localhost (default: 8080)
+    #[argh(option, default = "8080")]
+    pub port: u16,
+
+    /// also write every pose to this CSV file
+    #[argh(option)]
+    pub csv: Option<String>,
 }

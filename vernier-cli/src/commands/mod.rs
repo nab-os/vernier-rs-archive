@@ -9,5 +9,6 @@ pub mod render_checkerboard;
 pub mod render_megarena;
 pub mod roundtrip_megarena;
 pub mod solve_pnp;
+pub mod track;
 pub mod undistort;
 pub mod webcam;
