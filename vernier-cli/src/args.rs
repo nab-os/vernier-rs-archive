@@ -21,6 +21,7 @@ pub enum Command {
     RenderCheckerboard(RenderCheckerboardArgs),
     RenderMegarena(RenderMegarenaArgs),
     RoundtripMegarena(RoundtripMegarenaArgs),
+    Phone(PhoneArgs),
     SolvePnp(SolvePnpArgs),
     Track(TrackArgs),
     Undistort(UndistortArgs),
@@ -308,6 +309,46 @@ pub struct CalibrateArgs {
     /// the photos
     #[argh(positional)]
     pub images: Vec<String>,
+}
+
+/// Calibrate and track with a phone's camera: the phone opens a page served
+/// over HTTPS on the local network and streams its camera to it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "phone")]
+pub struct PhoneArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// calibration of the phone's camera: tracked with if the file exists,
+    /// otherwise calibrated on the page and written there
+    /// (default: phone-camera.json)
+    #[argh(option, default = "String::from(\"phone-camera.json\")")]
+    pub camera: String,
+
+    /// distinct views to calibrate from (default: 15)
+    #[argh(option, default = "15")]
+    pub views: usize,
+
+    /// camera model to calibrate: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// HTTPS port on the local network (default: 8443)
+    #[argh(option, default = "8443")]
+    pub port: u16,
+
+    /// also write every pose to this CSV file
+    #[argh(option)]
+    pub csv: Option<String>,
 }
 
 /// Calibrate a webcam live: frames are read through ffmpeg until enough
