@@ -14,11 +14,14 @@ pub struct TopLevel {
 #[argh(subcommand)]
 pub enum Command {
     Bench(BenchArgs),
+    Calibrate(CalibrateArgs),
     CheckerboardFigures(CheckerboardFiguresArgs),
     DetectMegarena(DetectMegarenaArgs),
     RenderCheckerboard(RenderCheckerboardArgs),
     RenderMegarena(RenderMegarenaArgs),
     RoundtripMegarena(RoundtripMegarenaArgs),
+    SolvePnp(SolvePnpArgs),
+    Undistort(UndistortArgs),
 }
 
 /// Time the full two-direction detection pipeline on a synthetic image.
@@ -273,4 +276,81 @@ pub struct CheckerboardFiguresArgs {
     /// number of poses used for the phase-bias measurement (default: 24)
     #[argh(option, default = "24")]
     pub poses: usize,
+}
+
+/// Calibrate a camera from photos of the coded checkerboard (as printed from
+/// render-checkerboard), taken at varied angles and places in the frame.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "calibrate")]
+pub struct CalibrateArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// camera model: pinhole or fisheye (default: pinhole)
+    #[argh(option, default = "String::from(\"pinhole\")")]
+    pub model: String,
+
+    /// where to write the calibration (default: camera.json)
+    #[argh(option, default = "String::from(\"camera.json\")")]
+    pub output: String,
+
+    /// the photos
+    #[argh(positional)]
+    pub images: Vec<String>,
+}
+
+/// Find the pose of the board in photos taken with a calibrated camera.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "solve-pnp")]
+pub struct SolvePnpArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// side of one printed square, in the unit the pose should come out in
+    #[argh(option)]
+    pub square: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+
+    /// the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// the photos
+    #[argh(positional)]
+    pub images: Vec<String>,
+}
+
+/// Resample a photo as an ideal pinhole camera would have taken it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "undistort")]
+pub struct UndistortArgs {
+    /// calibration written by calibrate or calibrate-webcam
+    #[argh(option)]
+    pub camera: String,
+
+    /// output PNG file path
+    #[argh(option)]
+    pub output: String,
+
+    /// output focal length over the calibrated one; below 1 keeps more of a
+    /// fisheye's field (default: 1.0)
+    #[argh(option, default = "1.0")]
+    pub zoom: f64,
+
+    /// the photo
+    #[argh(positional)]
+    pub image: String,
 }

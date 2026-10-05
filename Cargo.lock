@@ -1832,6 +1832,10 @@ version = "0.1.0"
 dependencies = [
  "argh",
  "image",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "vernier-camera",
  "vernier-core",
  "vernier-cpu",
  "vernier-cuda",

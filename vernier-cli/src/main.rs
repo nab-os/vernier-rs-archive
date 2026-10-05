@@ -16,11 +16,24 @@ mod pgm;
 use args::{Command, TopLevel};
 use backend_select::{BackendKind, dispatch};
 use commands::benchmark::Benchmark;
+use commands::calibrate;
 use commands::checkerboard_figures;
 use commands::detect_megarena::DetectMegarena;
 use commands::render_checkerboard;
 use commands::render_megarena;
 use commands::roundtrip_megarena::RoundtripMegarena;
+use commands::{solve_pnp, undistort};
+use std::path::PathBuf;
+
+/// Ends the program with the error, if any, the way the camera commands
+/// report failure. They are called inside an immediately-run closure so that
+/// `?` can be used while building their arguments.
+fn exit_on_error(result: Result<(), String>) {
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
 
 fn main() {
     let top: TopLevel = argh::from_env();
@@ -49,6 +62,27 @@ fn main() {
                 r.backend, r.size, r.size, r.iterations, r.mean_ms, r.best_ms
             );
         }
+        Command::Calibrate(a) => exit_on_error((|| {
+            calibrate::run(&calibrate::CalibrateArgs {
+                images: a.images.iter().map(PathBuf::from).collect(),
+                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                model: calibrate::model(&a.model)?,
+                output: PathBuf::from(&a.output),
+            })
+        })()),
+        Command::SolvePnp(a) => exit_on_error((|| {
+            solve_pnp::run(&solve_pnp::SolvePnpArgs {
+                camera: PathBuf::from(&a.camera),
+                images: a.images.iter().map(PathBuf::from).collect(),
+                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+            })
+        })()),
+        Command::Undistort(a) => exit_on_error(undistort::run(&undistort::UndistortArgs {
+            camera: PathBuf::from(&a.camera),
+            image: PathBuf::from(&a.image),
+            output: PathBuf::from(&a.output),
+            zoom: a.zoom,
+        })),
         Command::DetectMegarena(a) => {
             let Some(kind) = BackendKind::parse(&a.backend) else {
                 eprintln!("unknown backend '{}'. try: cpu", a.backend);

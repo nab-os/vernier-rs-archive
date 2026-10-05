@@ -15,11 +15,15 @@ vulkan = ["vernier-patterns/vulkan"]
 
 [dependencies]
 argh = "0.1.19"
+vernier-camera = { path = "../vernier-camera" }
 vernier-core = { path = "../vernier-core" }
 vernier-cpu = { path = "../vernier-cpu" }
 vernier-spectral = { path = "../vernier-spectral" }
 vernier-pose = { path = "../vernier-pose" }
 vernier-patterns = { path = "../vernier-patterns" }
 image = { version = "0.25.10", features = ["jpeg", "png", "bmp", "tiff"] }
+nalgebra = "0.35.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
 vernier-gpu = { version = "0.1.0", path = "../vernier-gpu", optional = true }
 vernier-cuda = { path = "../vernier-cuda", optional = true }
