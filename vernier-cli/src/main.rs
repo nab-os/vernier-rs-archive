@@ -22,7 +22,7 @@ use commands::detect_megarena::DetectMegarena;
 use commands::render_checkerboard;
 use commands::render_megarena;
 use commands::roundtrip_megarena::RoundtripMegarena;
-use commands::{solve_pnp, undistort};
+use commands::{solve_pnp, undistort, webcam};
 use std::path::PathBuf;
 
 /// Ends the program with the error, if any, the way the camera commands
@@ -68,6 +68,25 @@ fn main() {
                 target: calibrate::target(a.square, a.code_size, a.diamonds)?,
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
+            })
+        })()),
+        Command::CalibrateWebcam(a) => exit_on_error((|| {
+            if !(a.interval >= 0.0 && a.interval.is_finite()) {
+                return Err(format!(
+                    "interval {} must be a non-negative number of seconds",
+                    a.interval
+                ));
+            }
+            webcam::run(&webcam::WebcamArgs {
+                device: a.device.clone(),
+                format: a.format.clone(),
+                video_size: a.video_size.clone(),
+                views: a.views,
+                interval: std::time::Duration::from_secs_f64(a.interval),
+                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                model: calibrate::model(&a.model)?,
+                output: PathBuf::from(&a.output),
+                save_frames: a.save_frames.as_ref().map(PathBuf::from),
             })
         })()),
         Command::SolvePnp(a) => exit_on_error((|| {
