@@ -25,7 +25,8 @@ pub use calibrate::{Calibration, CalibrationError, PnpSolution, ViewFit, calibra
 pub use camera::{Camera, Model};
 pub use geometry::RigidPose;
 pub use measure::{
-    Attempt, Field, MeasureError, Peak, PointMatch, Trace, View, demodulated_field, measure_view,
-    measure_view_after, measure_view_traced,
+    Attempt, CpuDemodulator, Field, MeasureError, Peak, PointMatch, Trace, View, demodulated_field,
+    demodulated_field_with, measure_view, measure_view_after, measure_view_traced,
+    measure_view_traced_with,
 };
 pub use target::{Scene, Target};

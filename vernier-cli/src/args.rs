@@ -349,6 +349,11 @@ pub struct PhoneArgs {
     /// also write every pose to this CSV file
     #[argh(option)]
     pub csv: Option<String>,
+
+    /// where to demodulate the frames: cpu (or gpu with the gpu feature)
+    /// (default: cpu)
+    #[argh(option, default = "String::from(\"cpu\")")]
+    pub backend: String,
 }
 
 /// Calibrate a webcam live: frames are read through ffmpeg until enough
@@ -491,4 +496,9 @@ pub struct TrackArgs {
     /// also write every pose to this CSV file
     #[argh(option)]
     pub csv: Option<String>,
+
+    /// where to demodulate the frames: cpu (or gpu with the gpu feature)
+    /// (default: cpu)
+    #[argh(option, default = "String::from(\"cpu\")")]
+    pub backend: String,
 }

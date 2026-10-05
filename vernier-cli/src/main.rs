@@ -35,6 +35,12 @@ fn exit_on_error(result: Result<(), String>) {
     }
 }
 
+/// The backend named on the command line, for the camera commands.
+fn backend(name: &str) -> Result<BackendKind, String> {
+    BackendKind::parse(name)
+        .ok_or_else(|| format!("unknown backend '{name}'; try {}", BackendKind::hint()))
+}
+
 fn main() {
     let top: TopLevel = argh::from_env();
 
@@ -97,6 +103,7 @@ fn main() {
                 model: calibrate::model(&a.model)?,
                 port: a.port,
                 csv: a.csv.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::SolvePnp(a) => exit_on_error((|| {
@@ -123,6 +130,7 @@ fn main() {
                 video_size: Some(video_size),
                 port: a.port,
                 csv: a.csv.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::Undistort(a) => exit_on_error(undistort::run(&undistort::UndistortArgs {
