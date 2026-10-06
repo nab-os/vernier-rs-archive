@@ -11,6 +11,7 @@ on:
       - "vernier-core/**"
       - "vernier-cpu/**"
       - "vernier-patterns/**"
+      - "vernier-pose/**"
       - "vernier-spectral/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
