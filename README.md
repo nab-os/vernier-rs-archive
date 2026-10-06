@@ -243,7 +243,7 @@ pose = det.detect_megarena(img, 9.0, 12, 'min_frequency', 20, 'max_frequency', 5
 fprintf('x=%.2f  y=%.2f  theta=%.6f\n', pose.x, pose.y, pose.theta);
 ```
 
-The library looks for `libvernier_cabi.so` in `vernier-matlab/lib/` by default.  Copy or symlink it there from `target/release/`.
+The library looks for `libvernier_cabi.so` in `vernier-matlab/lib/` by default.  Copy or symlink it there from `target/release/`.  The header is read from `vernier-matlab/include/vernier.h` if present, otherwise from `vernier-cabi/include/vernier.h`.
 
 See `vernier-matlab/examples/detect.m` for a full example.
 

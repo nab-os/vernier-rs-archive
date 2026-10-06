@@ -98,6 +98,10 @@ namespace Vernier
         /// search; 0 disables blurring.
         /// </param>
         /// <returns>Detected <see cref="Pose"/>.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown if <paramref name="pixels"/> holds fewer than
+        /// <c>width × height</c> elements or a size is not positive.
+        /// </exception>
         /// <exception cref="ObjectDisposedException">
         /// Thrown if the detector has been disposed.
         /// </exception>
@@ -112,6 +116,8 @@ namespace Vernier
             double smoothingSigma = 0.5)
         {
             ThrowIfDisposed();
+            CheckImage(pixels, width, height);
+            CheckFrequencies(minFrequency, maxFrequency);
             var raw = Native.vernier_detect_periodic(
                 _handle, pixels,
                 (nuint)width, (nuint)height,
@@ -148,6 +154,10 @@ namespace Vernier
         /// Gaussian blur sigma applied to the magnitude spectrum before peak search.
         /// </param>
         /// <returns>Detected <see cref="Pose"/>.</returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown if <paramref name="pixels"/> holds fewer than
+        /// <c>width × height</c> elements or a size is not positive.
+        /// </exception>
         /// <exception cref="ObjectDisposedException">
         /// Thrown if the detector has been disposed.
         /// </exception>
@@ -163,10 +173,12 @@ namespace Vernier
             double smoothingSigma = 0.5)
         {
             ThrowIfDisposed();
+            CheckImage(pixels, width, height);
+            CheckFrequencies(minFrequency, maxFrequency);
             var raw = Native.vernier_detect_megarena(
                 _handle, pixels,
                 (nuint)width, (nuint)height,
-                physicalPeriod, (uint)codeSize,
+                physicalPeriod, checked((uint)codeSize),
                 sigma,
                 (nuint)minFrequency, (nuint)maxFrequency,
                 smoothingSigma);
@@ -192,6 +204,28 @@ namespace Vernier
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(Detector));
+        }
+
+        // The native side reads width × height floats from the array, so a
+        // short array or a negative size would read past its end.
+        private static void CheckImage(float[] pixels, int width, int height)
+        {
+            if (pixels is null)
+                throw new ArgumentNullException(nameof(pixels));
+            if (width <= 0 || height <= 0)
+                throw new ArgumentException($"Image size {width}×{height} must be positive.");
+            if (pixels.LongLength < (long)width * height)
+                throw new ArgumentException(
+                    $"pixels holds {pixels.LongLength} elements, fewer than {width}×{height}.",
+                    nameof(pixels));
+        }
+
+        private static void CheckFrequencies(int minFrequency, int maxFrequency)
+        {
+            if (minFrequency < 0)
+                throw new ArgumentOutOfRangeException(nameof(minFrequency));
+            if (maxFrequency < 0)
+                throw new ArgumentOutOfRangeException(nameof(maxFrequency));
         }
 
         private static Pose ToPublicPose(RawPose raw, string fallbackMessage)
@@ -258,7 +292,7 @@ namespace Vernier
         internal static string? LastError()
         {
             var ptr = vernier_last_error();
-            return ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+            return ptr != IntPtr.Zero ? Marshal.PtrToStringUTF8(ptr) : null;
         }
     }
 

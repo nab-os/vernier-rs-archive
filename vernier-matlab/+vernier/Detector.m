@@ -22,7 +22,8 @@ classdef Detector < handle
     % directory.  Override before first use:
     %   vernier.Detector.set_lib_path('/your/path/libvernier_cabi.so')
     %
-    % The matching vernier.h header must be at ../include/vernier.h.
+    % The matching vernier.h header is read from ../include/vernier.h if it
+    % exists, otherwise from vernier-cabi/include/vernier.h in this repository.
 
     properties (Access = private)
         handle_
@@ -199,6 +200,9 @@ classdef Detector < handle
             lib_path = vernier.Detector.lib_path_store_();
             here     = fileparts(mfilename('fullpath'));
             hdr_path = fullfile(here, '..', 'include', 'vernier.h');
+            if ~isfile(hdr_path)
+                hdr_path = fullfile(here, '..', '..', 'vernier-cabi', 'include', 'vernier.h');
+            end
             loadlibrary(lib_path, hdr_path, 'alias', 'vernier_cabi');
         end
 
