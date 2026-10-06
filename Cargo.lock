@@ -2085,9 +2085,11 @@ name = "vernier-cabi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
+ "vernier-camera",
  "vernier-core",
  "vernier-cpu",
  "vernier-cuda",
+ "vernier-patterns",
  "vernier-pose",
  "vernier-spectral",
 ]

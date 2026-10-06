@@ -122,6 +122,31 @@ make -C vernier-cabi/examples
 
 The public header is at `vernier-cabi/include/vernier.h`.  Link your project with `-lvernier_cabi -L<path/to/target/release>`.
 
+### C++
+
+`vernier-cabi/include/vernier.hpp` wraps the C ABI in RAII classes that throw `std::runtime_error` on failure.  Besides the `Detector`, it covers camera calibration and PnP from the coded checkerboard:
+
+```cpp
+#include "vernier.hpp"
+
+vernier::Target target{5.0, 6};                  // 5 mm squares, code size 6
+std::vector<vernier::View> views;
+for (const auto& img : images)                   // row-major float, [0, 1]
+    views.push_back(vernier::View::measure(img.data(), w, h, target));
+
+vernier::Calibration cal = vernier::calibrate(views, vernier::Model::Pinhole);
+// cal.camera: fx, fy, cx, cy and OpenCV-ordered distortion; cal.rms in px
+
+vernier::ViewFit fit = vernier::solve_pnp(cal.camera, views[0]);
+// fit.pose.rvec / fit.pose.tvec: board → camera, as cv::solvePnP returns
+```
+
+`View::points()` gives the raw pixel ↔ board correspondences if you would rather hand them to OpenCV.  Compile with `-std=c++17 -I vernier-cabi/include -L target/release -lvernier_cabi`.  A complete example calibrates from the fmac set:
+
+```bash
+make -C vernier-cabi/examples run-calibrate   # needs ImageMagick for PNG → PGM
+```
+
 ### Python
 
 The Python extension is built with [maturin](https://github.com/PyO3/maturin).

@@ -15,6 +15,8 @@ vernier-cpu       = { path = "../vernier-cpu" }
 vernier-cuda      = { path = "../vernier-cuda", optional = true }
 vernier-spectral = { path = "../vernier-spectral" }
 vernier-pose      = { path = "../vernier-pose" }
+vernier-camera    = { path = "../vernier-camera" }
+vernier-patterns  = { path = "../vernier-patterns" }
 
 [build-dependencies]
 cbindgen = "0.29"
