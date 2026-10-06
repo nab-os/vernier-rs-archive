@@ -20,7 +20,8 @@ compare against the truth.
 The board has 5 mm squares and an LFSR code of order 6:
 
 ```text
-vernier calibrate --square 5 --code-size 6 resources/fmac-calibration/view_*.png
+vernier make-pattern checkerboard --square 5 --code-size 6 --output fmac-board.json
+vernier calibrate --pattern fmac-board.json resources/fmac-calibration/view_*.png
 ```
 
 The views: one nearly square on; four tilted 35° about either board axis;

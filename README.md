@@ -40,11 +40,15 @@ After a release build the CLI binary is at `target/release/vernier`.
 
 ## CLI quick start
 
+Every command reads its pattern from a pattern file, a JSON file `make-pattern` writes (see [Pattern files](#pattern-files)).
+
 ```bash
-# Run periodic + absolute detection on the reference image
+# Run periodic + absolute detection on the reference image, a megarena of
+# 9 µm dots and code size 12
+./target/release/vernier make-pattern megarena --pitch 9 --code-size 12
 ./target/release/vernier detect-megarena \
     --image resources/images/megarenaPatternImage_12bits_9um.jpg \
-    --period 9.0 --code-size 12
+    --pattern megarena-pitch9-code12-512x512-20px.json
 
 # Benchmark the detection pipeline (CPU)
 ./target/release/vernier bench --size 1024 --iters 50
@@ -69,19 +73,22 @@ orientation.)
 
 `vernier-camera` calibrates a camera, pinhole or fisheye, from views of the coded checkerboard, and finds the pose of the board in a picture (PnP). A view is read through the phase of the board's carriers rather than its corners, so every visible square counts and one view gives hundreds to thousands of sub-pixel correspondences. The code tells which square is which, so the board does not have to be fully in view.
 
-Print a board. This is an A4 sheet at 300 dpi with 5 mm squares:
+Print a board. Describe it in a pattern file, with the image to render it to: here an A4 sheet at 300 dpi, 2480×3508 pixels, with 5 mm squares, 59 pixels each. Then render it:
 
 ```bash
-./target/release/vernier render-pattern checkerboard --output board.png \
-    --width 2480 --height 3508 --square 59 --code-size 6
+./target/release/vernier make-pattern checkerboard --square 5 --code-size 6 \
+    --width 2480 --height 3508 --square-px 59 --output board.json
+./target/release/vernier render-pattern --pattern board.json --output board.png
 ```
 
-Measure a printed square with a ruler: that is the `--square` value below, and the unit poses come out in. A view needs about `3 × (code size + 3)` squares across to read the code, which is why a small code suits a small sheet. Views where the code is not read still count towards the calibration.
+The same works for a screen: a megarena for a Pixel 8a, whose pixels are about 0.0591 mm, is `make-pattern megarena --pitch 1.772 --code-size 6 --width 1080 --height 2400 --square-px 30`.
+
+Measure a printed square with a ruler and give that as `--square`: it is the unit poses come out in. A view needs about `3 × (code size + 3)` squares across to read the code, which is why a small code suits a small sheet. Views where the code is not read still count towards the calibration.
 
 Calibrate a webcam (frames come through `ffmpeg`, which must be installed). Hold the board up and change its angle and place between captures; the command keeps 15 distinct views, calibrates and writes `camera.json`:
 
 ```bash
-./target/release/vernier calibrate-webcam --square 5.0 --code-size 6 \
+./target/release/vernier calibrate-webcam --pattern board.json \
     --video-size 1280x720 --save-frames frames
 ```
 
@@ -90,35 +97,43 @@ Calibrate a webcam (frames come through `ffmpeg`, which must be installed). Hold
 Or work from photos:
 
 ```bash
-./target/release/vernier calibrate --square 5.0 --code-size 6 --model fisheye frames/*.png
-./target/release/vernier solve-pnp --camera camera.json --square 5.0 --code-size 6 photo.png
+./target/release/vernier calibrate --pattern board.json --model fisheye frames/*.png
+./target/release/vernier solve-pnp --camera camera.json --pattern board.json photo.png
 ./target/release/vernier undistort --camera camera.json --output straight.png photo.png
 ```
 
 Follow the board live: every frame is solved and the pose is traced on a page at `http://localhost:8080/`, next to the camera picture with the board's axes drawn on it (`--csv poses.csv` also logs every pose):
 
 ```bash
-./target/release/vernier track --camera camera.json --square 5.0 --code-size 6
+./target/release/vernier track --camera camera.json --pattern board.json
 ```
 
 A calibration only holds at the resolution it was made at. `--device` also takes a video file, which is a way to rehearse without a camera.
 
 `track`, `phone` and `calibrate-webcam` take `--backend gpu` to demodulate the frames on a Vulkan GPU; the spectral search, the code and the board's restoration stay on the CPU. The points come out the same to within 1e-6 of a square. `cargo run --release -p vernier-gpu --example local_demod` compares both backends on a 1280×720 view.
 
-Instead of `--square`, `--code-size` and `--diamonds`, `calibrate`, `calibrate-webcam`, `phone`, `solve-pnp` and `track` take `--pattern`, a JSON file describing the board. It is also the way to calibrate and track with a megarena. `make-pattern checkerboard` or `make-pattern megarena` writes one, with the options of that pattern (`--square`, or `--pitch` for the dot spacing, 2.0 by default):
+A megarena works the same way as the checkerboard: give its pattern file to `calibrate`, `track` and the rest.
+
+### Pattern files
+
+Commands take their pattern only from a pattern file, `--pattern`. `make-pattern checkerboard` or `make-pattern megarena` writes one, with the options of that pattern. Without `--output` it is named after the pattern and its parameters, e.g. `megarena-pitch2-code8-512x512-20px.json`:
 
 ```bash
-./target/release/vernier make-pattern checkerboard --square 5.0 --code-size 6 --output board.json
-./target/release/vernier make-pattern megarena --pitch 2.0 --code-size 8 --output megarena.json
-./target/release/vernier calibrate --pattern board.json frames/*.png
+./target/release/vernier make-pattern checkerboard --square 5 --code-size 6 --diamonds
+./target/release/vernier make-pattern megarena --pitch 1.772 --code-size 6 \
+    --width 1080 --height 2400 --square-px 30
 ```
 
 ```json
-{ "pattern": "checkerboard", "square": 5.0, "code_size": 6, "layout": "squares", "packing": "one-bit" }
-{ "pattern": "megarena", "pitch": 2.0, "code_size": 8 }
+{ "pattern": "checkerboard", "square": 5.0, "code_size": 6, "layout": "diamonds", "packing": "one-bit",
+  "corner_radius": 0.0, "plain": false, "image": { "width": 512, "height": 512, "square": 12.0 } }
+{ "pattern": "megarena", "pitch": 1.772, "code_size": 6,
+  "image": { "width": 1080, "height": 2400, "square": 30.0 } }
 ```
 
-`code_size` defaults to 8, a megarena's `pitch` to 2.0, `layout` to `squares` (or `diamonds`) and `packing` to `one-bit` (or `two-bits`).
+`square` (`pitch`, the dot spacing, for a megarena) is the printed size, in the unit poses come out in. `image` is how `render-pattern` draws it: the image size and the square side (dot pitch) in pixels. `roundtrip-megarena` and `checkerboard-figures` render from it too, and `detect-megarena` and `roundtrip-megarena` read a megarena's `pitch` in micrometres.
+
+`code_size` defaults to 8, a megarena's `pitch` to 2.0, `layout` to `squares` (or `diamonds`), `packing` to `one-bit` (or `two-bits`), `corner_radius` to 0 (up to 0.5 for round corners), `plain` (the uncoded checkerboard) to false, and `image` to 512×512 with 12 px squares, or a 20 px dot pitch.
 
 ---
 

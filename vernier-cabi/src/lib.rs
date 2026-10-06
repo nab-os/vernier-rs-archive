@@ -308,13 +308,13 @@ pub const VERNIER_PACKING_ONE_BIT: u32 = 0;
 /// `VernierTarget::packing`: two code bits per axis in each 5×5 supercell.
 pub const VERNIER_PACKING_TWO_BITS: u32 = 1;
 
-/// `VernierTarget::kind`: the coded checkerboard of `vernier render-pattern checkerboard`.
+/// `VernierTarget::kind`: the coded checkerboard of `vernier render-pattern`.
 pub const VERNIER_TARGET_CHECKERBOARD: u32 = 0;
-/// `VernierTarget::kind`: the megarena dot grid of `vernier render-pattern megarena`.
+/// `VernierTarget::kind`: the megarena dot grid of `vernier render-pattern`.
 pub const VERNIER_TARGET_MEGARENA: u32 = 1;
 
 /// The printed board: which pattern, its size and how its code is laid out.
-/// What `vernier render-pattern checkerboard` prints by default is
+/// What `vernier render-pattern` prints by default is
 /// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT,
 /// VERNIER_TARGET_CHECKERBOARD }`, which `vernier_target_default` returns;
 /// `vernier_target_megarena` gives a megarena.
@@ -505,7 +505,7 @@ fn to_image(pixels: *const f32, width: usize, height: usize) -> Result<GrayImage
     GrayImage::from_vec(width, height, slice.to_vec()).ok_or_else(|| "mismatched image size".into())
 }
 
-/// A target as `vernier render-pattern checkerboard` prints it by default:
+/// A target as `vernier render-pattern` prints it by default:
 /// upright squares, one code bit per supercell.
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_target_default(square: f64, order: u32) -> VernierTarget {
@@ -518,7 +518,7 @@ pub extern "C" fn vernier_target_default(square: f64, order: u32) -> VernierTarg
     }
 }
 
-/// A megarena as `vernier render-pattern megarena` draws it, of dot pitch
+/// A megarena as `vernier render-pattern` draws it, of dot pitch
 /// `pitch` (in the unit poses should come out in) and LFSR order `order`.
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_target_megarena(pitch: f64, order: u32) -> VernierTarget {

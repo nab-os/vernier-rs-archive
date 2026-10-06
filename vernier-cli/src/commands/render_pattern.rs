@@ -1,83 +1,52 @@
-//! `render-pattern`: draws a coded checkerboard or a megarena at a given pose
-//! and saves it as PNG.
+//! `render-pattern`: draws the board of a pattern file at a given pose and
+//! saves it as PNG, at the image size the file gives.
 
 use std::path::PathBuf;
 
-use vernier_patterns::{
-    PatternPose,
-    checkerboard::{Checkerboard, CodeLayout},
-    megarena::Megarena,
-};
+use vernier_camera::Target;
+use vernier_patterns::PatternPose;
 
 use crate::imageio;
+use crate::pattern::PatternFile;
 
 pub struct RenderPatternArgs {
-    pub width: usize,
-    pub height: usize,
+    pub pattern: PatternFile,
     pub x: f64,
     pub y: f64,
     pub theta: f64,
-    pub pattern: Pattern,
     pub output: PathBuf,
 }
 
-/// The pattern to draw, with its sizes in pixels.
-pub enum Pattern {
-    Checkerboard {
-        square_px: f64,
-        code_size: u32,
-        /// Render the uncoded carrier instead of the coded pattern.
-        plain: bool,
-        /// Diamond layout: code along the diagonals.
-        diamonds: bool,
-        /// Corner radius as a fraction of a square side, 0.0 (square) to 0.5 (round).
-        corner_radius: f64,
-    },
-    Megarena {
-        period_px: f64,
-        code_size: u32,
-    },
-}
-
 pub fn run(args: &RenderPatternArgs) -> Result<(), String> {
+    let image = args.pattern.image();
+    // The file's board, measured in rendered pixels.
+    let in_pixels = Target {
+        square: image.square,
+        ..args.pattern.target()?
+    };
     let pose = PatternPose::new(args.x, args.y, args.theta);
-    let image = match args.pattern {
-        Pattern::Checkerboard {
-            square_px,
-            code_size,
-            plain,
-            diamonds,
+    let (width, height) = (image.width, image.height);
+    let pixels = match args.pattern {
+        PatternFile::Checkerboard {
             corner_radius,
+            plain,
+            ..
         } => {
-            let layout = if diamonds {
-                CodeLayout::Diamonds
-            } else {
-                CodeLayout::Squares
-            };
-            // The builder clamps, but a value typed on the command line is more
-            // likely a mistake than a request to clamp.
-            if !(0.0..=0.5).contains(&corner_radius) {
-                return Err(format!(
-                    "corner radius {corner_radius} is out of range; must be 0.0..=0.5"
-                ));
-            }
-            let pattern = Checkerboard::new(square_px, code_size)
-                .ok_or_else(|| format!("unsupported code size {code_size}; must be 4..=12"))?
-                .with_code_layout(layout)
+            let pattern = in_pixels
+                .checkerboard()
+                .ok_or("unsupported checkerboard")?
                 .with_corner_radius(corner_radius);
             if plain {
-                pattern.render_plain(args.width, args.height, &pose)
+                pattern.render_plain(width, height, &pose)
             } else {
-                pattern.render(args.width, args.height, &pose)
+                pattern.render(width, height, &pose)
             }
         }
-        Pattern::Megarena {
-            period_px,
-            code_size,
-        } => Megarena::new(period_px, code_size)
-            .ok_or_else(|| format!("unsupported code size {code_size}; must be 4..=12"))?
-            .render(args.width, args.height, &pose),
+        PatternFile::Megarena { .. } => in_pixels
+            .megarena_pattern()
+            .ok_or("unsupported megarena")?
+            .render(width, height, &pose),
     };
 
-    imageio::save_grayscale_png(&args.output, args.width, args.height, image.as_slice())
+    imageio::save_grayscale_png(&args.output, width, height, pixels.as_slice())
 }
