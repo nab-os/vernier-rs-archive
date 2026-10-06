@@ -266,7 +266,43 @@ struct Camera {
         for (std::size_t i = 0; i < n; ++i) c.distortion[i] = distortion[i];
         return c;
     }
+
+    /// Reads a camera file as `vernier calibrate` writes it.
+    /// Throws `std::runtime_error` on failure.
+    static Camera load(const std::string& path) {
+        VernierCamera c{};
+        if (!vernier_camera_load(path.c_str(), &c))
+            detail::throw_last_error("failed to read the camera file");
+        return from_c(c);
+    }
+
+    /// Writes this camera in `vernier calibrate`'s format, with the
+    /// calibration's rms (pixels; negative to leave out) and view count (0 to
+    /// leave out). Throws `std::runtime_error` on failure.
+    void save(const std::string& path, double rms = -1.0, std::size_t views = 0) const {
+        VernierCamera c = to_c();
+        if (!vernier_camera_save(path.c_str(), &c, rms, views))
+            detail::throw_last_error("failed to write the camera file");
+    }
 };
+
+/// A grayscale image, row-major, values in [0, 1].
+struct Image {
+    std::size_t        width  = 0;
+    std::size_t        height = 0;
+    std::vector<float> pixels;
+};
+
+/// Loads an image file (PNG, JPEG, BMP, TIFF, PGM/PPM) as grayscale.
+/// Throws `std::runtime_error` on failure.
+inline Image load_image(const std::string& path) {
+    Image  img;
+    float* p = vernier_image_load(path.c_str(), &img.width, &img.height);
+    if (!p) detail::throw_last_error("failed to load the image");
+    img.pixels.assign(p, p + img.width * img.height);
+    vernier_image_free(p, img.width, img.height);
+    return img;
+}
 
 /// Board to camera, `p_camera = R(rvec) · p_board + tvec`: OpenCV's
 /// `solvePnP` output.

@@ -5,7 +5,8 @@
 /vernier-webapp/target
 /vernier-webapp/dist
 /vernier-webapp/.dioxus
-/vernier-cabi/examples/calibrate
-/vernier-cabi/examples/fmac-pgm
-/vernier-cabi/examples/megarena
 /vernier-cabi/examples/megarena-views
+/vernier-cabi/examples/calibrate_camera
+/vernier-cabi/examples/solve_pnp
+/vernier-cabi/examples/camera.json
+/vernier-cabi/examples/camera-megarena.json

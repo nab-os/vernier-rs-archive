@@ -2085,6 +2085,9 @@ name = "vernier-cabi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
+ "image",
+ "serde",
+ "serde_json",
  "vernier-camera",
  "vernier-core",
  "vernier-cpu",

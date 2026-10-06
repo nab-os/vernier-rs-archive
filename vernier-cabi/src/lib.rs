@@ -703,3 +703,118 @@ pub extern "C" fn vernier_solve_pnp(
         Ok(1)
     })
 }
+
+// ─── Files: camera.json and images ───────────────────────────────────────────
+
+/// The camera file `vernier calibrate` writes and `vernier solve-pnp` reads:
+/// the camera's fields at the top level, then how the calibration went.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CameraFile {
+    #[serde(flatten)]
+    camera: camera::Camera,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    views: Option<usize>,
+}
+
+fn path_of<'a>(path: *const c_char) -> Result<&'a str, String> {
+    if path.is_null() {
+        return Err("null path".into());
+    }
+    unsafe { std::ffi::CStr::from_ptr(path) }
+        .to_str()
+        .map_err(|_| "path is not UTF-8".into())
+}
+
+/// Reads a camera file as `vernier calibrate` writes it (JSON: `model`,
+/// `width`, `height`, `fx`, `fy`, `cx`, `cy`, `distortion`).
+///
+/// Returns 1 on success, 0 on failure (see `vernier_last_error`).
+#[unsafe(no_mangle)]
+pub extern "C" fn vernier_camera_load(path: *const c_char, out: *mut VernierCamera) -> i32 {
+    guarded(0, || {
+        let path = path_of(path)?;
+        let out = unsafe { out.as_mut() }.ok_or("null out pointer")?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))?;
+        let file: CameraFile = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        let c = file.camera;
+        let expected = c.model.distortion_len();
+        if c.distortion.len() != expected {
+            return Err(format!(
+                "{path}: a {} camera has {expected} distortion coefficients",
+                c.model.name()
+            ));
+        }
+        *out = from_camera(&c);
+        Ok(1)
+    })
+}
+
+/// Writes a camera file in the format `vernier calibrate` writes, which
+/// `vernier_camera_load` and `vernier solve-pnp` read back. `rms` (pixels) and
+/// `views` record how the calibration went; a negative `rms` or zero `views`
+/// leaves them out.
+///
+/// Returns 1 on success, 0 on failure (see `vernier_last_error`).
+#[unsafe(no_mangle)]
+pub extern "C" fn vernier_camera_save(
+    path: *const c_char,
+    camera: *const VernierCamera,
+    rms: f64,
+    views: usize,
+) -> i32 {
+    guarded(0, || {
+        let path = path_of(path)?;
+        let file = CameraFile {
+            camera: to_camera(camera)?,
+            rms: (rms >= 0.0).then_some(rms),
+            views: (views > 0).then_some(views),
+        };
+        let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+        std::fs::write(path, text + "\n").map_err(|e| format!("failed to write {path}: {e}"))?;
+        Ok(1)
+    })
+}
+
+/// Loads an image file (PNG, JPEG, BMP, TIFF, PGM/PPM) as grayscale,
+/// row-major, `width × height` floats in [0, 1]: what the measurement and
+/// detection functions take.
+///
+/// Returns NULL on failure (see `vernier_last_error`). Free the pixels with
+/// `vernier_image_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn vernier_image_load(
+    path: *const c_char,
+    width: *mut usize,
+    height: *mut usize,
+) -> *mut f32 {
+    guarded(std::ptr::null_mut(), || {
+        let path = path_of(path)?;
+        let (width, height) = unsafe { (width.as_mut(), height.as_mut()) };
+        let (Some(width), Some(height)) = (width, height) else {
+            return Err("null width or height pointer".into());
+        };
+        let image = image::open(path).map_err(|e| format!("failed to open {path}: {e}"))?;
+        // Through 16-bit luma, to keep the depth of 16-bit files.
+        let luma = image.to_luma16();
+        *width = luma.width() as usize;
+        *height = luma.height() as usize;
+        let pixels: Box<[f32]> = luma
+            .pixels()
+            .map(|p| p.0[0] as f32 / u16::MAX as f32)
+            .collect();
+        Ok(Box::into_raw(pixels) as *mut f32)
+    })
+}
+
+/// Frees pixels from `vernier_image_load`, given the size it returned.
+/// Passing NULL is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn vernier_image_free(pixels: *mut f32, width: usize, height: usize) {
+    if !pixels.is_null() {
+        let slice = std::ptr::slice_from_raw_parts_mut(pixels, width * height);
+        unsafe { drop(Box::from_raw(slice)) };
+    }
+}

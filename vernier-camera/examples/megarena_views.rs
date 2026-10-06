@@ -1,6 +1,6 @@
 //! Renders a set of views of a printed megarena through a known camera, to
 //! calibrate from and compare against the truth (see
-//! `vernier-cabi/examples/calibrate.cpp`).
+//! `make -C vernier-cabi/examples run-pnp-megarena`).
 //!
 //! ```text
 //! cargo run --release -p vernier-camera --example megarena_views -- <out-dir>
