@@ -2140,7 +2140,6 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "nalgebra",
- "num-complex",
  "thiserror",
 ]
 
@@ -2183,14 +2182,12 @@ dependencies = [
  "approx",
  "nalgebra",
  "rayon",
- "smallvec",
  "vernier-camera",
  "vernier-core",
  "vernier-cpu",
  "vernier-patterns",
  "vernier-pose",
  "vulkano",
- "vulkano-macros",
  "vulkano-shaders",
 ]
 
@@ -2235,7 +2232,6 @@ dependencies = [
  "vernier-core",
  "vernier-patterns",
  "vulkano",
- "vulkano-macros",
  "vulkano-shaders",
 ]
 
