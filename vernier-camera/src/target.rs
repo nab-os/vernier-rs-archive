@@ -1,24 +1,40 @@
-//! The calibration target: a coded checkerboard of known square size.
+//! The calibration target: a coded checkerboard of known square size, or a
+//! megarena of known dot pitch.
 
 use nalgebra::Vector3;
 use rayon::prelude::*;
 use vernier_core::Real;
 use vernier_patterns::checkerboard::{Checkerboard, CodeLayout, CodePacking};
+use vernier_patterns::megarena::Megarena;
 
 use crate::camera::Camera;
 use crate::geometry::RigidPose;
 
+/// Which pattern a [`Target`] is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PatternKind {
+    /// The coded checkerboard of `vernier render-checkerboard`.
+    #[default]
+    Checkerboard,
+    /// The megarena dot grid of `vernier render-megarena`: carriers along the
+    /// dot rows and columns, three dots per code bit, one corner dot of every
+    /// 3×3 cell left out.
+    Megarena,
+}
+
 /// What was printed: the square size and how the code is laid out.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Target {
-    /// Side of one square, in whatever unit the poses should come out in.
+    /// Side of one square, in whatever unit the poses should come out in. For
+    /// a megarena, the dot pitch.
     pub square: Real,
     /// LFSR order the board was rendered with.
     pub order: u32,
-    /// Squares upright or turned 45°.
+    /// Squares upright or turned 45°. Checkerboard only.
     pub layout: CodeLayout,
-    /// How many code bits per axis each supercell carries.
+    /// How many code bits per axis each supercell carries. Checkerboard only.
     pub packing: CodePacking,
+    pub kind: PatternKind,
 }
 
 impl Target {
@@ -30,7 +46,22 @@ impl Target {
             order,
             layout: CodeLayout::Squares,
             packing: CodePacking::OneBit,
+            kind: PatternKind::Checkerboard,
         }
+    }
+
+    /// A megarena of dot pitch `pitch` (in the unit poses should come out in)
+    /// and LFSR order `order`, as `vernier render-megarena` draws it: the code
+    /// starts at the dot on the origin.
+    pub fn megarena(pitch: Real, order: u32) -> Self {
+        Self {
+            kind: PatternKind::Megarena,
+            ..Self::new(pitch, order)
+        }
+    }
+
+    pub fn is_megarena(&self) -> bool {
+        self.kind == PatternKind::Megarena
     }
 
     /// This target with another code layout.
@@ -45,28 +76,71 @@ impl Target {
         self
     }
 
-    /// The pattern itself, for rendering. `None` for an LFSR order the
-    /// patterns crate does not support.
+    /// The checkerboard itself, for rendering. `None` for a megarena or for
+    /// an LFSR order the patterns crate does not support.
     pub fn checkerboard(&self) -> Option<Checkerboard> {
+        if self.is_megarena() {
+            return None;
+        }
         Checkerboard::new(self.square, self.order).map(|c| {
             c.with_code_layout(self.layout)
                 .with_code_packing(self.packing)
         })
     }
 
-    /// Code period in squares along either lattice axis. Positions are only
-    /// known modulo this.
-    pub fn period_squares(&self) -> i64 {
-        self.packing.cell() * ((1i64 << self.order) - 1)
+    /// The megarena itself, for rendering. `None` for a checkerboard or for
+    /// an LFSR order the patterns crate does not support.
+    pub fn megarena_pattern(&self) -> Option<Megarena> {
+        if !self.is_megarena() {
+            return None;
+        }
+        Megarena::new(self.square, self.order)
     }
 
-    /// Board coordinates of a continuous square-lattice position, integers
-    /// being square centres.
+    /// The printed pattern, `None` for an unsupported LFSR order.
+    pub(crate) fn printed(&self) -> Option<Printed> {
+        match self.kind {
+            PatternKind::Checkerboard => self.checkerboard().map(Printed::Checkerboard),
+            PatternKind::Megarena => self.megarena_pattern().map(Printed::Megarena),
+        }
+    }
+
+    /// Code period along either lattice axis, in squares (dots for a
+    /// megarena). Positions are only known modulo this.
+    pub fn period_squares(&self) -> i64 {
+        match self.kind {
+            PatternKind::Checkerboard => self.packing.cell() * ((1i64 << self.order) - 1),
+            // Three dots per bit.
+            PatternKind::Megarena => 3 * ((1i64 << self.order) - 1),
+        }
+    }
+
+    /// Board coordinates of a continuous lattice position, integers being
+    /// square centres, or dot centres for a megarena.
     pub fn board_point(&self, i: Real, j: Real) -> [Real; 2] {
+        if self.is_megarena() {
+            return [self.square * i, self.square * j];
+        }
         let (x, y) = self
             .layout
             .from_lattice(self.square * (i + 0.5), self.square * (j + 0.5));
         [x, y]
+    }
+}
+
+/// A target's pattern, for its grey levels.
+pub(crate) enum Printed {
+    Checkerboard(Checkerboard),
+    Megarena(Megarena),
+}
+
+impl Printed {
+    /// Grey level at a board point, `0.0..=1.0`.
+    pub(crate) fn intensity_at(&self, x: Real, y: Real) -> Real {
+        match self {
+            Self::Checkerboard(c) => c.intensity_at(x, y),
+            Self::Megarena(m) => m.intensity_at(x, y),
+        }
     }
 }
 
@@ -88,7 +162,7 @@ impl Scene<'_> {
     /// drawn at `0.1` and white at `0.9`, a printed board's dynamic range.
     /// Panics on an LFSR order the patterns crate does not support.
     pub fn render(&self, pose: &RigidPose) -> Vec<f32> {
-        let board = self.target.checkerboard().expect("supported order");
+        let board = self.target.printed().expect("supported order");
         let (w, h) = (self.camera.width, self.camera.height);
         let n = self.supersample.max(1);
         let board_normal = pose.rotation * Vector3::z();

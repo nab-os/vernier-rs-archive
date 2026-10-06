@@ -29,7 +29,8 @@ use vernier_core::scalar::consts::{PI, TAU};
 use vernier_patterns::checkerboard::Checkerboard;
 use vernier_pose::checkerboard::{CheckerboardCode, CheckerboardError, extract_code_from_phases};
 
-use crate::target::Target;
+use crate::megarena::{self, MegarenaCode, MegarenaError};
+use crate::target::{PatternKind, Printed, Target};
 
 /// Carrier amplitude over local contrast below which a window is not on the
 /// board. A clean board reads about 0.3 to 0.5, clutter well under 0.1.
@@ -109,8 +110,9 @@ pub struct View {
     ///
     /// Both axes carry the same sequence, so the board is its own mirror image
     /// about its diagonal. A mirrored picture (a webcam's selfie flip) reads
-    /// as well as a straight one, with `x` and `y` swapped.
-    pub code: Result<CheckerboardCode, CheckerboardError>,
+    /// as well as a straight one, with `x` and `y` swapped. The same holds
+    /// for a megarena.
+    pub code: Result<Code, CodeError>,
     /// Carrier period where the walk started, in pixels.
     pub period: Real,
     /// The carrier pair the walk started from, for the next frame.
@@ -123,6 +125,42 @@ impl View {
         self.code.is_ok()
     }
 }
+
+/// Where the measured lattice sits on the board, as the target's decoder
+/// found it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Code {
+    Checkerboard(CheckerboardCode),
+    Megarena(MegarenaCode),
+}
+
+impl Code {
+    /// Bits that disagreed with the code along either axis.
+    pub fn bit_errors(&self) -> (usize, usize) {
+        match self {
+            Self::Checkerboard(c) => c.bit_errors,
+            Self::Megarena(c) => c.bit_errors,
+        }
+    }
+}
+
+/// Why the code was not read.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CodeError {
+    Checkerboard(CheckerboardError),
+    Megarena(MegarenaError),
+}
+
+impl std::fmt::Display for CodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Checkerboard(e) => e.fmt(f),
+            Self::Megarena(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for CodeError {}
 
 /// Why a frame gave no view.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -204,7 +242,9 @@ pub struct Attempt {
     pub dropped: Vec<([Real; 2], &'static str)>,
     /// Per point of the view: carrier quality and window offset.
     pub point_quality: Vec<(Real, Real)>,
-    pub code: Option<Result<CheckerboardCode, CheckerboardError>>,
+    /// The pattern followed, which sets how phases map to its lattice.
+    pub kind: PatternKind,
+    pub code: Option<Result<Code, CodeError>>,
     pub error: Option<MeasureError>,
     /// Milliseconds per stage.
     pub timings: Vec<(&'static str, f64)>,
@@ -234,17 +274,21 @@ impl Attempt {
             Some(Ok(code)) => Some(code),
             _ => None,
         };
-        pattern_square(code, phase)
+        pattern_square(self.kind, code, phase)
     }
 }
 
-/// Square of the board pattern at a pair of unwrapped phases: the measured
-/// lattice placed on the board by the code when there is one, else the
-/// measured lattice as it is.
-fn pattern_square(code: Option<&CheckerboardCode>, phase: [Real; 2]) -> (Real, Real) {
-    let measured = lattice(phase);
+/// Square (dot for a megarena) of the board pattern at a pair of unwrapped
+/// phases: the measured lattice placed on the board by the code when there is
+/// one, else the measured lattice as it is.
+fn pattern_square(kind: PatternKind, code: Option<&Code>, phase: [Real; 2]) -> (Real, Real) {
+    let measured = match kind {
+        PatternKind::Checkerboard => lattice(phase),
+        PatternKind::Megarena => megarena::lattice(phase),
+    };
     match code {
-        Some(code) => code.to_pattern(measured),
+        Some(Code::Checkerboard(code)) => code.to_pattern(measured),
+        Some(Code::Megarena(code)) => code.to_pattern(measured),
         None => measured,
     }
 }
@@ -1366,7 +1410,7 @@ fn measure(
     images: bool,
 ) -> (Result<View, MeasureError>, Trace) {
     let mut trace = Trace::default();
-    let Some(board) = target.checkerboard() else {
+    let Some(board) = target.printed() else {
         return (Err(MeasureError::UnsupportedOrder(target.order)), trace);
     };
     let image = Image {
@@ -1377,6 +1421,7 @@ fn measure(
     let follow = |carriers, from_previous, trace: &mut Trace| {
         let mut attempt = Attempt {
             from_previous,
+            kind: target.kind,
             ..Attempt::default()
         };
         let view = measure_with(&image, carriers, target, &board, &mut attempt, images);
@@ -1425,7 +1470,7 @@ fn measure_with(
     image: &Image,
     carriers: [[Real; 2]; 2],
     target: &Target,
-    board: &Checkerboard,
+    board: &Printed,
     attempt: &mut Attempt,
     images: bool,
 ) -> Result<View, MeasureError> {
@@ -1471,13 +1516,27 @@ fn measure_with(
 
     // The code inverts squares here and there, which dents the carrier
     // unevenly across a window and pulls its phase. Once the code is known,
-    // paint those squares back and measure the plain checkerboard.
-    let (plain, defocus) = match code.as_ref() {
-        Ok(code) => {
+    // paint those squares back and measure the plain checkerboard. A
+    // megarena's code leaves dots out, which pulls the phase the same way;
+    // they are painted back too.
+    let (plain, defocus) = match (code.as_ref(), board) {
+        (Ok(Code::Checkerboard(code)), Printed::Checkerboard(board)) => {
             let (restored, defocus) = restore(image, &maps, code, board, period);
             (Some(restored), defocus)
         }
-        Err(_) => (None, None),
+        (Ok(Code::Megarena(code)), Printed::Megarena(_)) => {
+            let restored = megarena::restore(
+                image.data,
+                width,
+                height,
+                &maps,
+                code,
+                target.order,
+                period,
+            );
+            (Some(restored), None)
+        }
+        _ => (None, None),
     };
     attempt.defocus = defocus;
     let clean = plain.as_deref().map_or(*image, |data| Image {
@@ -1549,7 +1608,7 @@ fn decode(
     maps: &[[Real; 3]],
     samples: &[Sample],
     target: &Target,
-) -> Result<CheckerboardCode, CheckerboardError> {
+) -> Result<Code, CodeError> {
     let kept: HashSet<GridNode> = samples.iter().map(|s| s.node).collect();
     let beyond = beyond_board(fine, &kept);
     let inner: Vec<Sample> = samples
@@ -1635,12 +1694,12 @@ fn drop_leaning(fine: &Grid, samples: &mut Vec<Sample>, attempt: &mut Attempt) {
 fn board_points(
     fine: &Grid,
     samples: &[Sample],
-    code: Option<&CheckerboardCode>,
+    code: Option<&Code>,
     target: &Target,
 ) -> Vec<PointMatch> {
     let mut squares: Vec<(Real, Real)> = samples
         .iter()
-        .map(|s| pattern_square(code, s.phase))
+        .map(|s| pattern_square(target.kind, code, s.phase))
         .collect();
     if code.is_some() {
         let count = squares.len() as Real;
@@ -1771,14 +1830,20 @@ fn with_holes_filled<'a>(fine: &Grid, samples: &'a [Sample]) -> HashMap<GridNode
     by_node
 }
 
-/// Reads the code off the phase maps with `vernier-pose`'s decoder, anchored
-/// at the middle sample.
+/// Reads the code off the phase maps: a checkerboard's with `vernier-pose`'s
+/// decoder, anchored at the middle sample; a megarena's with
+/// [`megarena::read_code`].
 fn read_code(
     image: &Image,
     maps: &[[Real; 3]],
     samples: &[Sample],
     target: &Target,
-) -> Result<CheckerboardCode, CheckerboardError> {
+) -> Result<Code, CodeError> {
+    if target.is_megarena() {
+        return megarena::read_code(maps, image.data, target.order)
+            .map(Code::Megarena)
+            .map_err(CodeError::Megarena);
+    }
     let phase1: Vec<Real> = maps.iter().map(|p| p[0]).collect();
     let phase2: Vec<Real> = maps.iter().map(|p| p[1]).collect();
     let anchor = lattice(samples[samples.len() / 2].phase);
@@ -1793,6 +1858,8 @@ fn read_code(
         target.layout,
         target.packing,
     )
+    .map(Code::Checkerboard)
+    .map_err(CodeError::Checkerboard)
 }
 
 /// The frame with every coding square painted back to its checkerboard colour.

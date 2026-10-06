@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use nalgebra::{Matrix3, Vector3};
 use serde_json::{Value, json};
 use vernier_camera::{
-    Attempt, Camera, Field, PnpSolution, Target, Trace, View, demodulated_field,
+    Attempt, Camera, Code, Field, PnpSolution, Target, Trace, View, demodulated_field,
     measure_view_traced, solve_pnp,
 };
 use vernier_core::Real;
@@ -786,8 +786,11 @@ fn describe_attempt(attempt: &Attempt, event: &mut Value, debug: &mut Value) {
     event["coarse"] = json!(attempt.coarse.len());
     event["funnel"] = json!(attempt.funnel.iter().map(|f| f.1).collect::<Vec<_>>());
     if let Some(Ok(code)) = &attempt.code {
-        event["bit_errors"] = json!([code.bit_errors.0, code.bit_errors.1]);
-        event["false_accept"] = json!(code.false_accept);
+        let (x, y) = code.bit_errors();
+        event["bit_errors"] = json!([x, y]);
+        if let Code::Checkerboard(code) = code {
+            event["false_accept"] = json!(code.false_accept);
+        }
     }
     debug["coarse"] = json!(
         attempt
@@ -912,7 +915,15 @@ fn attempt_json(attempt: &Attempt) -> Value {
     };
     let code = match &attempt.code {
         None => Value::Null,
-        Some(Ok(c)) => json!({
+        Some(Ok(Code::Megarena(c))) => json!({
+            "ok": true,
+            "transform": c.transform,
+            "delta": [c.delta.0, c.delta.1],
+            "bits": [c.bits.0, c.bits.1],
+            "bit_errors": [c.bit_errors.0, c.bit_errors.1],
+            "agreement": c.agreement,
+        }),
+        Some(Ok(Code::Checkerboard(c))) => json!({
             "ok": true,
             "transform": c.transform,
             "delta": [c.delta.0, c.delta.1],
