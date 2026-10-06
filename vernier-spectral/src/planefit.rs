@@ -108,8 +108,8 @@ pub fn fit_plane_to_unwrapped(
     crop_factor: Real,
 ) -> PhasePlane {
     // --- Least-squares plane fit, centered coordinates ---
-    let col_off = ((width as f64 * crop_factor as f64) / 2.0) as usize;
-    let row_off = ((height as f64 * crop_factor as f64) / 2.0) as usize;
+    let col_off = ((width as f64 * crop_factor) / 2.0) as usize;
+    let row_off = ((height as f64 * crop_factor) / 2.0) as usize;
 
     let cropped_w = width - 2 * col_off;
     let cropped_h = height - 2 * row_off;
@@ -128,7 +128,7 @@ pub fn fit_plane_to_unwrapped(
         let j = (r - row_off) as f64 - center_y;
         for col in col_off..(width - col_off) {
             let i = (col - col_off) as f64 - center_x;
-            let p = phase[r * width + col] as f64;
+            let p = phase[r * width + col];
             sii += i * i;
             sjj += j * j;
             sij += i * j;

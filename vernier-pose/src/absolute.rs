@@ -255,9 +255,9 @@ fn missing_from_coding(coding1: i64, coding2: i64, quadrant: u8) -> (i64, i64) {
 fn cpp_frame_offsets(detection: &vernier_spectral::spectrum::Detection) -> (i64, i64) {
     use vernier_core::scalar::consts::TAU;
     let (width_f64, height_f64) = (detection.width as f64, detection.height as f64);
-    let mag1 = (detection.dir1.plane.a.powi(2) + detection.dir1.plane.b.powi(2)).sqrt() as f64;
-    let mag2 = (detection.dir2.plane.a.powi(2) + detection.dir2.plane.b.powi(2)).sqrt() as f64;
-    let pixel_period = (TAU as f64 / mag1 + TAU as f64 / mag2) / 2.0;
+    let mag1 = (detection.dir1.plane.a.powi(2) + detection.dir1.plane.b.powi(2)).sqrt();
+    let mag2 = (detection.dir2.plane.a.powi(2) + detection.dir2.plane.b.powi(2)).sqrt();
+    let pixel_period = (TAU / mag1 + TAU / mag2) / 2.0;
     let make_odd_len = |dim: f64| -> i64 {
         let mut length = (dim / pixel_period) as i64 + 1;
         if length % 2 == 0 {
@@ -286,7 +286,7 @@ fn detect_coding_orientation(
         if pixel_count > 0 {
             let i = (cell_x + offset1).rem_euclid(3) as usize;
             let j = (cell_y + offset2).rem_euclid(3) as usize;
-            sum[i][j] += intensity_sum as f64;
+            sum[i][j] += intensity_sum;
             cnt[i][j] += pixel_count;
         }
     }
@@ -428,11 +428,9 @@ fn decode_axis_bits(
                     } else {
                         true
                     };
-                    if include {
-                        if let Some(mean) = pools.white_mean(cell_at(neighbor, perp_pos)) {
-                            white_sum += mean;
-                            white_count += 1;
-                        }
+                    if include && let Some(mean) = pools.white_mean(cell_at(neighbor, perp_pos)) {
+                        white_sum += mean;
+                        white_count += 1;
                     }
                 }
             }
@@ -683,7 +681,7 @@ pub fn detect_orientation(
         if pixel_count > 0 {
             let i = cell_x.rem_euclid(3) as usize;
             let j = cell_y.rem_euclid(3) as usize;
-            sum[i][j] += intensity_sum as f64;
+            sum[i][j] += intensity_sum;
             cnt[i][j] += pixel_count;
         }
     }

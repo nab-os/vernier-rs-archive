@@ -7,6 +7,12 @@
 //! `vernier_calibrate` and `vernier_solve_pnp`. Each function is
 //! thread-safe in the sense that separate handles may be used concurrently;
 //! a single handle must not be used from multiple threads simultaneously.
+//!
+//! The functions take raw pointers from C and so are only as safe as their
+//! callers: each one's documentation (and `vernier.h`) states what its
+//! pointers must point to. They are not marked `unsafe` because C has no
+//! notion of it.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::cell::RefCell;
 use std::ffi::{CString, c_char};
@@ -25,7 +31,7 @@ use vernier_spectral::spectrum::{Detection, analyze_two};
 // ─── Thread-local error storage ──────────────────────────────────────────────
 
 thread_local! {
-    static LAST_ERROR: RefCell<Option<CString>> = RefCell::new(None);
+    static LAST_ERROR: RefCell<Option<CString>> = const { RefCell::new(None) };
 }
 
 fn set_last_error(msg: impl std::fmt::Display) {
@@ -190,7 +196,7 @@ impl VernierPose {
 /// - `min_frequency`    — inner annulus radius for peak search (0 = no limit).
 /// - `max_frequency`    — outer annulus radius for peak search (0 = no limit).
 /// - `smoothing_sigma`  — Gaussian blur on the magnitude spectrum before peak
-///                        search; 0 disables blurring.
+///   search; 0 disables blurring.
 ///
 /// Returns a pose with `found == 0` on failure.
 #[unsafe(no_mangle)]
@@ -233,13 +239,13 @@ pub extern "C" fn vernier_detect_periodic(
 /// - `det`              — handle from `vernier_detector_new[_cuda]` (must not be NULL).
 /// - `pixels`           — row-major f32 image, `width × height` elements in [0, 1].
 /// - `physical_period`  — pattern spatial period in micrometres (9 µm for the
-///                        reference pattern).
+///   reference pattern).
 /// - `code_size`        — LFSR order in bits (12 for the reference pattern).
 /// - `sigma`            — bandpass filter half-width in frequency bins.
 /// - `min_frequency`    — inner annulus radius for peak search (0 = no limit).
 /// - `max_frequency`    — outer annulus radius for peak search (0 = no limit).
 /// - `smoothing_sigma`  — Gaussian blur on the magnitude spectrum before peak
-///                        search; 0 disables blurring.
+///   search; 0 disables blurring.
 ///
 /// Returns a pose with `found == 0` on failure.
 #[unsafe(no_mangle)]
@@ -406,7 +412,7 @@ fn guarded<T>(fallback: T, f: impl FnOnce() -> Result<T, String>) -> T {
 
 fn to_target(t: *const VernierTarget) -> Result<camera::Target, String> {
     let t = unsafe { t.as_ref() }.ok_or("null target pointer")?;
-    if !(t.square > 0.0) {
+    if t.square.is_nan() || t.square <= 0.0 {
         return Err(format!("square size {} must be positive", t.square));
     }
     let layout = match t.layout {

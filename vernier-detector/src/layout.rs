@@ -230,7 +230,7 @@ impl PeriodicPatternLayout {
     }
 
     fn period(&self) -> f64 {
-        self.pattern.period_px as f64
+        self.pattern.period_px
     }
 }
 
@@ -245,13 +245,13 @@ impl PatternLayout for PeriodicPatternLayout {
         "PeriodicPattern"
     }
     fn get_intensity(&self, x: f64, y: f64) -> f64 {
-        self.pattern.intensity_at(x as Real, y as Real) as f64
+        self.pattern.intensity_at(x as Real, y as Real)
     }
     fn get_phase1(&self, x: f64, y: f64) -> f64 {
-        self.pattern.phase1_at(x as Real, y as Real) as f64
+        self.pattern.phase1_at(x as Real, y as Real)
     }
     fn get_phase2(&self, x: f64, y: f64) -> f64 {
-        self.pattern.phase2_at(x as Real, y as Real) as f64
+        self.pattern.phase2_at(x as Real, y as Real)
     }
     fn render(&self, width: usize, height: usize, pose: &PatternPose) -> GrayImage {
         self.pattern.render(width, height, pose)
@@ -377,7 +377,7 @@ impl MegarenaPatternLayout {
         let pattern = Megarena::new(Self::DEFAULT_PERIOD, Self::DEFAULT_ORDER).unwrap();
         let extent = default_extent(Self::DEFAULT_ORDER);
         Self {
-            dot_size: 0.5 * Self::DEFAULT_PERIOD as f64,
+            dot_size: 0.5 * Self::DEFAULT_PERIOD,
             n_rows: extent,
             n_cols: extent,
             margins: Margins::default(),
@@ -387,7 +387,7 @@ impl MegarenaPatternLayout {
     }
 
     fn period(&self) -> f64 {
-        self.pattern.period_px as f64
+        self.pattern.period_px
     }
 
     fn rebuild(&mut self, period: Real, order: u32) -> bool {
@@ -418,13 +418,13 @@ impl PatternLayout for MegarenaPatternLayout {
         "MegarenaPattern"
     }
     fn get_intensity(&self, x: f64, y: f64) -> f64 {
-        self.pattern.intensity_at(x as Real, y as Real) as f64
+        self.pattern.intensity_at(x as Real, y as Real)
     }
     fn get_phase1(&self, x: f64, y: f64) -> f64 {
-        self.pattern.phase1_at(x as Real, y as Real) as f64
+        self.pattern.phase1_at(x as Real, y as Real)
     }
     fn get_phase2(&self, x: f64, y: f64) -> f64 {
-        self.pattern.phase2_at(x as Real, y as Real) as f64
+        self.pattern.phase2_at(x as Real, y as Real)
     }
     fn render(&self, width: usize, height: usize, pose: &PatternPose) -> GrayImage {
         self.pattern.render(width, height, pose)

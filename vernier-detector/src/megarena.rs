@@ -29,8 +29,10 @@ impl<B: ComputeBackend> MegarenaPatternDetector<B> {
     /// Creates a detector with the reference-pattern defaults (9 µm period,
     /// 12-bit code).
     pub fn new(backend: B) -> Self {
-        let mut config = SpectralConfig::default();
-        config.physical_period = DEFAULT_PERIOD;
+        let config = SpectralConfig {
+            physical_period: DEFAULT_PERIOD,
+            ..SpectralConfig::default()
+        };
         Self {
             backend,
             config,

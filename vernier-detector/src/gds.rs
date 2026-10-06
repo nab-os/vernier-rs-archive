@@ -97,7 +97,7 @@ fn record_i32(out: &mut Vec<u8>, record: u16, values: &[i32]) {
 /// GDSII strings are null-padded to an even length.
 fn record_string(out: &mut Vec<u8>, record: u16, s: &str) {
     let mut bytes = s.as_bytes().to_vec();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         bytes.push(0);
     }
     record_header(out, record, bytes.len());

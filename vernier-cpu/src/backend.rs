@@ -210,7 +210,6 @@ impl ComputeJob for CpuJob<'_> {
     fn gaussian_blur_2d(&mut self, buf: &mut CpuBuffer, sigma: Real) -> Result<()> {
         let width = buf.layout().width;
         let height = buf.layout().height;
-        let sigma = sigma as f64;
         let radius = (3.0 * sigma).ceil() as usize;
         let n = 2 * radius + 1;
         let kernel: Vec<f64> = (0..n)
@@ -440,7 +439,7 @@ impl ComputeJob for CpuJob<'_> {
         let sfx2 = signed(peaks_data[2].re as usize, width) as f64;
         let sfy2 = signed(peaks_data[3].re as usize, height) as f64;
 
-        let neg_inv_two_sigma_sq = -1.0_f64 / (2.0 * (sigma as f64).powi(2));
+        let neg_inv_two_sigma_sq = -1.0_f64 / (2.0 * sigma.powi(2));
 
         let mut acc = [[0.0_f64; 5]; 2]; // [c_re, c_im, sfx_numerator, sfy_numerator, denominator] per direction
 
@@ -482,8 +481,7 @@ impl ComputeJob for CpuJob<'_> {
 
         let tau = std::f64::consts::TAU;
         let mut result = Vec::with_capacity(6);
-        for direction in 0..2 {
-            let [c_re, c_im, sfx_numerator, sfy_numerator, denominator] = acc[direction];
+        for [c_re, c_im, sfx_numerator, sfy_numerator, denominator] in acc {
             let a = if denominator != 0.0 {
                 (tau * sfx_numerator / denominator / width as f64) as f32
             } else {

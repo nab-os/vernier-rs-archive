@@ -240,8 +240,8 @@ impl<'a> CudaJob<'a> {
         let n_floats = buf.n_floats();
         let mut temp = self.alloc_f32(n_floats)?;
 
-        let gx = ((width + 7) / 8) as u32;
-        let gy = ((height + 7) / 8) as u32;
+        let gx = width.div_ceil(8) as u32;
+        let gy = height.div_ceil(8) as u32;
         let cfg_2d = LaunchConfig {
             grid_dim: (gx, gy, 1),
             block_dim: (8, 8, 1),
@@ -314,7 +314,7 @@ impl ComputeJob for CudaJob<'_> {
         // cuFFT inverse is unnormalized: scale by 1/(width*height)
         let n_floats = buf.n_floats() as u32;
         let scale_factor = 1.0_f32 / (width * height) as f32;
-        let n_blocks = (n_floats + 255) / 256;
+        let n_blocks = n_floats.div_ceil(256);
         let cfg = LaunchConfig {
             grid_dim: (n_blocks, 1, 1),
             block_dim: (256, 1, 1),
@@ -337,8 +337,8 @@ impl ComputeJob for CudaJob<'_> {
         sigma: Real,
     ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
-        let gx = ((width + 7) / 8) as u32;
-        let gy = ((height + 7) / 8) as u32;
+        let gx = width.div_ceil(8) as u32;
+        let gy = height.div_ceil(8) as u32;
         let cfg = LaunchConfig {
             grid_dim: (gx, gy, 1),
             block_dim: (8, 8, 1),
@@ -368,8 +368,8 @@ impl ComputeJob for CudaJob<'_> {
         sigma: Real,
     ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
-        let gx = ((width + 7) / 8) as u32;
-        let gy = ((height + 7) / 8) as u32;
+        let gx = width.div_ceil(8) as u32;
+        let gy = height.div_ceil(8) as u32;
         let cfg = LaunchConfig {
             grid_dim: (gx, gy, 1),
             block_dim: (8, 8, 1),
@@ -398,8 +398,8 @@ impl ComputeJob for CudaJob<'_> {
         max_frequency: usize,
     ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
-        let gx = ((width + 7) / 8) as u32;
-        let gy = ((height + 7) / 8) as u32;
+        let gx = width.div_ceil(8) as u32;
+        let gy = height.div_ceil(8) as u32;
         let cfg = LaunchConfig {
             grid_dim: (gx, gy, 1),
             block_dim: (8, 8, 1),
@@ -427,7 +427,7 @@ impl ComputeJob for CudaJob<'_> {
     fn extract_phase(&mut self, buf: &CudaBuffer) -> Result<CudaBuffer> {
         let n = buf.n_complex() as u32;
         let mut out = self.alloc_f32(buf.n_floats())?;
-        let n_blocks = (n + 255) / 256;
+        let n_blocks = n.div_ceil(256);
         let cfg = LaunchConfig {
             grid_dim: (n_blocks, 1, 1),
             block_dim: (256, 1, 1),
@@ -457,7 +457,7 @@ impl ComputeJob for CudaJob<'_> {
     ) -> Result<Option<CudaBuffer>> {
         let (width, height) = (buffer.width, buffer.height);
         let n = width * height;
-        let n_groups = (n + 255) / 256;
+        let n_groups = n.div_ceil(256);
 
         // 1. Copy input into working magnitude buffer
         let mut mag_data = self.alloc_f32(buffer.n_floats())?;
@@ -474,7 +474,7 @@ impl ComputeJob for CudaJob<'_> {
         // 2. Convert to magnitude in-place
         let n_elements = n as u32;
         let cfg_1d = LaunchConfig {
-            grid_dim: ((n_elements + 255) / 256, 1, 1),
+            grid_dim: (n_elements.div_ceil(256), 1, 1),
             block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
@@ -532,8 +532,8 @@ impl ComputeJob for CudaJob<'_> {
         .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 7. Band + angular filter (modifies magnitude in-place)
-        let gx = ((width + 7) / 8) as u32;
-        let gy = ((height + 7) / 8) as u32;
+        let gx = width.div_ceil(8) as u32;
+        let gy = height.div_ceil(8) as u32;
         let cfg_2d = LaunchConfig {
             grid_dim: (gx, gy, 1),
             block_dim: (8, 8, 1),
@@ -609,7 +609,7 @@ impl ComputeJob for CudaJob<'_> {
     ) -> Result<CudaBuffer> {
         let (width, height) = (spectrum.width, spectrum.height);
         let n = width * height;
-        let n_groups = (n + 63) / 64;
+        let n_groups = n.div_ceil(64);
 
         // 10 floats per group
         let mut partials = self.alloc_f32(n_groups * 10)?;

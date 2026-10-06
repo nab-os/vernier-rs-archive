@@ -124,18 +124,18 @@ fn gradient_sign(
     }
     let cw = width - 2 * side;
     let ch = height - 2 * side;
-    let denom = (a * a + b * b) as f64;
+    let denom = a * a + b * b;
     if denom == 0.0 {
         return 0;
     }
-    let get = |i: usize, j: usize| -> f64 { phase[(i + side) * width + (j + side)] as f64 };
+    let get = |i: usize, j: usize| -> f64 { phase[(i + side) * width + (j + side)] };
 
     let (dw, dh) = (cw - 1, ch - 1);
     let mut derived = vec![0.0f64; dw * dh];
     for i in 0..dh {
         for j in 0..dw {
-            let dx = -(get(i + 1, j) - get(i, j)) * a as f64 / denom;
-            let dy = (get(i, j + 1) - get(i, j)) * b as f64 / denom;
+            let dx = -(get(i + 1, j) - get(i, j)) * a / denom;
+            let dy = (get(i, j + 1) - get(i, j)) * b / denom;
             derived[i * dw + j] = dx + dy;
         }
     }

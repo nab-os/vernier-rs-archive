@@ -792,6 +792,7 @@ struct DefectMap {
     parity_shift: i64,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transform(
     white: &BTreeMap<(i64, i64), bool>,
     centre_measured: (Real, Real),

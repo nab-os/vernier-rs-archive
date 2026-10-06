@@ -174,8 +174,8 @@ impl<B: ComputeBackend> BitmapPatternDetector<B> {
     /// mirroring `PeriodicPatternDetector::get2DPose` with the shifts applied.
     fn assemble_pose(&self, p1: &PhasePlane, p2: &PhasePlane) -> Pose {
         let period = self.config.physical_period as f64;
-        let x = -(period * (p1.c as f64 / TAU as f64 + self.period_shift1 as f64));
-        let y = -(period * (p2.c as f64 / TAU as f64 + self.period_shift2 as f64));
+        let x = -(period * (p1.c / TAU + self.period_shift1 as f64));
+        let y = -(period * (p2.c / TAU + self.period_shift2 as f64));
         let alpha = (p1.b).atan2(p1.a);
         let pixelic_period = TAU / (p1.a * p1.a + p1.b * p1.b).sqrt();
         let pixel_size = period as Real / pixelic_period;

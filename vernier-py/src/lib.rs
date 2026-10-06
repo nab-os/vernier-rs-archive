@@ -103,6 +103,12 @@ pub struct Detector {
     backend: BackendInner,
 }
 
+impl Default for Detector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[pymethods]
 impl Detector {
     /// Creates a CPU-backed detector.
@@ -221,6 +227,7 @@ impl Detector {
     /// Raises:
     ///     RuntimeError: if detection or LFSR decode fails.
     #[pyo3(signature = (image, physical_period, code_size, sigma=3.0, min_frequency=20, max_frequency=500, smoothing_sigma=0.5))]
+    #[allow(clippy::too_many_arguments)] // Python keyword arguments.
     pub fn detect_megarena(
         &self,
         image: PyReadonlyArray2<f32>,

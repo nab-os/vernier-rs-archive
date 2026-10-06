@@ -457,18 +457,19 @@ fn main() {
     let offs = offsets(jitter);
 
     eprintln!("jitter +/-{jitter} deg: rendering clean images...");
-    let subjects: Vec<(Design, Checkerboard, Vec<PatternPose>, Vec<Vec<f32>>)> =
-        [SQUARE, DIAMOND, DIAMOND_MATCHED]
-            .into_iter()
-            .map(|design| {
-                let pattern = Checkerboard::new(design.square, ORDER)
-                    .unwrap()
-                    .with_code_layout(design.layout);
-                let poses = poses_for(&design, &offs);
-                let renders = render_all(&pattern, &poses);
-                (design, pattern, poses, renders)
-            })
-            .collect();
+    // Each design with its board, the poses it was rendered at and the images.
+    type Subject = (Design, Checkerboard, Vec<PatternPose>, Vec<Vec<f32>>);
+    let subjects: Vec<Subject> = [SQUARE, DIAMOND, DIAMOND_MATCHED]
+        .into_iter()
+        .map(|design| {
+            let pattern = Checkerboard::new(design.square, ORDER)
+                .unwrap()
+                .with_code_layout(design.layout);
+            let poses = poses_for(&design, &offs);
+            let renders = render_all(&pattern, &poses);
+            (design, pattern, poses, renders)
+        })
+        .collect();
 
     println!(
         "jitter_deg,family,variant,level,design,correct,wrong,detected,total,median_err_px,mean_check_bits"

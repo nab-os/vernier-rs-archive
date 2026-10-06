@@ -859,7 +859,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(GpuBuffer {
@@ -903,7 +903,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -943,7 +943,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
 
@@ -975,7 +975,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1017,7 +1017,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1061,7 +1061,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1077,7 +1077,7 @@ impl ComputeJob for GpuJob<'_> {
     ) -> Result<Option<GpuBuffer>> {
         let (width, height) = (buffer.width, buffer.height);
         let n = width * height;
-        let n_groups = (n + 255) / 256;
+        let n_groups = n.div_ceil(256);
 
         // 1. Deep copy input → working magnitude buffer
         let magnitude_raw = self.alloc_buffer(n);
@@ -1114,7 +1114,7 @@ impl ComputeJob for GpuJob<'_> {
                 magnitude_shader::PushConstantData { n: n as u32 },
             )
             .unwrap();
-        unsafe { self.builder.dispatch([(n as u32 + 255) / 256, 1, 1]) }.unwrap();
+        unsafe { self.builder.dispatch([(n as u32).div_ceil(256), 1, 1]) }.unwrap();
 
         // 3. annulus mask
         self.filter(&mut magnitude, min_frequency, max_frequency)?;
@@ -1222,7 +1222,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width as u32 + 7) / 8, (height as u32 + 7) / 8, 1])
+                .dispatch([(width as u32).div_ceil(8), (height as u32).div_ceil(8), 1])
         }
         .unwrap();
 
@@ -1364,7 +1364,7 @@ impl ComputeJob for GpuJob<'_> {
     ) -> Result<GpuBuffer> {
         let (width, height) = (spectrum.width, spectrum.height);
         let n = width * height;
-        let n_groups = (n + 63) / 64;
+        let n_groups = n.div_ceil(64);
 
         let partials = self.alloc_buffer(n_groups * 5); // 5 Complex32 = 10 floats per workgroup
         let descriptor_set_partial = self.descriptor_set(

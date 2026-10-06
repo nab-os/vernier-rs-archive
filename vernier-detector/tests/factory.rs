@@ -28,7 +28,7 @@ fn periodic_via_factory_detects() {
     let image = pattern.render(size, size, &PatternPose::IDENTITY);
 
     let mut det = Detector::new_instance("PeriodicPattern").unwrap();
-    det.set_double("physicalPeriod", period as f64);
+    det.set_double("physicalPeriod", period);
     det.set_double("sigma", 4.0);
     det.set_int("minFrequency", 10);
     det.set_int("maxFrequency", 0);
@@ -68,7 +68,7 @@ fn megarena_via_factory_matches_direct_solve() {
     let image = pattern.render(size, size, &PatternPose::IDENTITY);
 
     let mut det = Detector::new_instance("MegarenaPattern").unwrap();
-    det.set_double("physicalPeriod", period as f64);
+    det.set_double("physicalPeriod", period);
     det.set_int("codeSize", order as i64);
     det.set_double("sigma", 4.0);
     det.set_int("minFrequency", 10);
@@ -116,7 +116,7 @@ fn bitmap_detector_matches_its_own_thumbnail() {
         .render(size, size, &PatternPose::IDENTITY);
 
     let mut det = BitmapPatternDetector::new(CpuBackend::new());
-    det.set_double("physicalPeriod", period as f64);
+    det.set_double("physicalPeriod", period);
     det.set_double("sigma", 4.0);
     det.set_int("minFrequency", 10);
     det.set_int("maxFrequency", 0);
@@ -176,7 +176,7 @@ fn layout_render_matches_pattern_render() {
     let size = 128usize;
     let period = 10.0;
     let mut layout = Layout::new_instance("PeriodicPattern").unwrap();
-    assert!(layout.set_double("period", period as f64));
+    assert!(layout.set_double("period", period));
     let via_layout = layout.render(size, size, &PatternPose::IDENTITY);
 
     let direct = vernier_patterns::periodic::Periodic::new(period).render(
@@ -196,7 +196,7 @@ fn layout_intensity_matches_render_center() {
     let mut layout = Layout::new_instance("PeriodicPattern").unwrap();
     layout.set_double("period", period as f64);
     let img = layout.render(size, size, &PatternPose::IDENTITY);
-    let center = img.get(size / 2, size / 2) as f64;
+    let center = img.get(size / 2, size / 2);
     assert!((layout.get_intensity(0.0, 0.0) - center).abs() < 1e-5);
 }
 

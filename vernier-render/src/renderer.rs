@@ -105,6 +105,7 @@ impl PatternRenderer {
     ///
     /// Selects the best available physical device (discrete > integrated > …)
     /// that supports the required features.
+    #[allow(clippy::new_without_default)] // Creating a Vulkan device isn't a default.
     pub fn new() -> Self {
         let library = VulkanLibrary::new().expect("no Vulkan library");
 
