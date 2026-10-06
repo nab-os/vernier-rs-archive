@@ -114,15 +114,7 @@ impl Pose {
     /// to `(-pi, pi]`.
     #[inline]
     pub fn angle_difference(&self, other: &Pose) -> Real {
-        use crate::scalar::consts::TAU;
-        let mut d = self.theta - other.theta;
-        while d > crate::scalar::consts::PI {
-            d -= TAU;
-        }
-        while d <= -crate::scalar::consts::PI {
-            d += TAU;
-        }
-        d
+        crate::math::angle_in_pi_pi(self.theta - other.theta)
     }
 
     /// Transformation matrix from the camera to the pattern frame (`cTp`),
