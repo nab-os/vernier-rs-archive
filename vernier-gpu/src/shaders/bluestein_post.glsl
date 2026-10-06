@@ -40,9 +40,16 @@ vec2 cmul(vec2 a, vec2 b) {
     return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
 }
 
+// πn²/N reduced to (-π, π], exactly in integers; see bluestein_pre.glsl.
+float chirp_angle(uint n) {
+    uint q = (n * n) % (2u * pc.N);
+    float centred = q > pc.N ? float(q) - 2.0 * float(pc.N) : float(q);
+    return PI * centred / float(pc.N);
+}
+
 // exp(-jπn²/N) for forward, exp(+jπn²/N) for inverse.
 vec2 post_chirp(uint n) {
-    float angle = PI * float(n) * float(n) / float(pc.N);
+    float angle = chirp_angle(n);
     if (pc.is_inverse == 0u) angle = -angle;
     return vec2(cos(angle), sin(angle));
 }
