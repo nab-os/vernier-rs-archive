@@ -12,9 +12,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use vernier_camera::{Model, Target, View, calibrate, measure_view};
+use vernier_camera::{Model, Target, View, calibrate, measure_view_traced_with};
 
 use super::calibrate::{code_status, report, save};
+use crate::backend_select::{BackendKind, Demodulator};
 use crate::imageio;
 
 /// What `calibrate-webcam` needs, already parsed from the command line.
@@ -31,6 +32,8 @@ pub struct WebcamArgs {
     pub output: PathBuf,
     /// Directory to save the kept frames in, if any.
     pub save_frames: Option<PathBuf>,
+    /// Where the frames are demodulated.
+    pub backend: BackendKind,
 }
 
 /// How ffmpeg should open the device. Each `None` leaves the choice to ffmpeg
@@ -328,6 +331,7 @@ pub fn run(args: &WebcamArgs) -> Result<(), String> {
         args.device
     );
 
+    let demodulator = Demodulator::new(args.backend)?;
     let mut collected = Collected::default();
     let mut seen = None;
     let mut next_examined = Instant::now();
@@ -357,7 +361,7 @@ pub fn run(args: &WebcamArgs) -> Result<(), String> {
         let Some(following) = next_frame(&capture, frame.index) else {
             break;
         };
-        collected.consider(&frame, &following, args)?;
+        collected.consider(&frame, &following, &demodulator, args)?;
     }
     drop(capture);
 
@@ -390,6 +394,7 @@ impl Collected {
         &mut self,
         frame: &Frame,
         following: &Frame,
+        demodulator: &Demodulator,
         args: &WebcamArgs,
     ) -> Result<(), String> {
         let label = format!("frame {}", frame.index);
@@ -400,7 +405,16 @@ impl Collected {
             eprintln!("{label}: the board is moving ({moved:.3}), hold it still for a moment");
             return Ok(());
         }
-        let view = match measure_view(&frame.data, frame.width, frame.height, &args.target) {
+        let (measured, _) = measure_view_traced_with(
+            demodulator,
+            &frame.data,
+            frame.width,
+            frame.height,
+            &args.target,
+            None,
+            false,
+        );
+        let view = match measured {
             Ok(view) => view,
             Err(e) => {
                 eprintln!("{label}: {e}");

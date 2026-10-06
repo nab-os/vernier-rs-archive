@@ -414,6 +414,11 @@ pub struct CalibrateWebcamArgs {
     /// directory to save the kept frames in, to rerun with calibrate
     #[argh(option)]
     pub save_frames: Option<String>,
+
+    /// where to demodulate the frames: cpu (or gpu with the gpu feature)
+    /// (default: cpu)
+    #[argh(option, default = "String::from(\"cpu\")")]
+    pub backend: String,
 }
 
 /// Find the pose of the board in photos taken with a calibrated camera.

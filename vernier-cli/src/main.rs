@@ -97,6 +97,7 @@ fn main() {
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
                 save_frames: a.save_frames.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::Phone(a) => exit_on_error((|| {

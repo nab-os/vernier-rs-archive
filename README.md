@@ -103,7 +103,7 @@ Follow the board live: every frame is solved and the pose is traced on a page at
 
 A calibration only holds at the resolution it was made at. `--device` also takes a video file, which is a way to rehearse without a camera.
 
-`track` and `phone` take `--backend gpu` to demodulate the frames on a Vulkan GPU; the spectral search, the code and the board's restoration stay on the CPU. The points come out the same to within 1e-6 of a square. `cargo run --release -p vernier-gpu --example local_demod` compares both backends on a 1280×720 view.
+`track`, `phone` and `calibrate-webcam` take `--backend gpu` to demodulate the frames on a Vulkan GPU; the spectral search, the code and the board's restoration stay on the CPU. The points come out the same to within 1e-6 of a square. `cargo run --release -p vernier-gpu --example local_demod` compares both backends on a 1280×720 view.
 
 ---
 
