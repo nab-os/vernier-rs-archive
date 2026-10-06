@@ -201,7 +201,7 @@ impl Default for PatternSettings {
             period_px: 20.0,
             order: 8,
             lfsr_offset: 8,
-            // Matches `vernier-cli render-checkerboard --square`.
+            // Matches `vernier-cli render-pattern checkerboard --square`.
             square_px: 12.0,
             // Upstream's own default; see the supersample field.
             supersample: 4,

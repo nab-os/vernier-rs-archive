@@ -13,12 +13,12 @@ use crate::geometry::RigidPose;
 /// Which pattern a [`Target`] is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PatternKind {
-    /// The coded checkerboard of `vernier render-checkerboard`.
+    /// The coded checkerboard of `vernier render-pattern checkerboard`.
     #[default]
     Checkerboard,
-    /// The megarena dot grid of `vernier render-megarena`: carriers along the
-    /// dot rows and columns, three dots per code bit, one corner dot of every
-    /// 3×3 cell left out.
+    /// The megarena dot grid of `vernier render-pattern megarena`: carriers
+    /// along the dot rows and columns, three dots per code bit, one corner dot
+    /// of every 3×3 cell left out.
     Megarena,
 }
 
@@ -39,7 +39,7 @@ pub struct Target {
 
 impl Target {
     /// Upright squares, one bit per axis in each 3×3 supercell: what
-    /// `vernier render-checkerboard` prints by default.
+    /// `vernier render-pattern checkerboard` prints by default.
     pub fn new(square: Real, order: u32) -> Self {
         Self {
             square,
@@ -51,8 +51,8 @@ impl Target {
     }
 
     /// A megarena of dot pitch `pitch` (in the unit poses should come out in)
-    /// and LFSR order `order`, as `vernier render-megarena` draws it: the code
-    /// starts at the dot on the origin.
+    /// and LFSR order `order`, as `vernier render-pattern megarena` draws it:
+    /// the code starts at the dot on the origin.
     pub fn megarena(pitch: Real, order: u32) -> Self {
         Self {
             kind: PatternKind::Megarena,
