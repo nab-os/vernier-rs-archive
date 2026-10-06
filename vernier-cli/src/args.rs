@@ -138,7 +138,7 @@ pub struct RenderMegarenaArgs {
     #[argh(option, default = "20.0")]
     pub period: f64,
 
-    /// LFSR code size in bits, 3..=16 (default: 8)
+    /// LFSR code size in bits, 4..=12 (default: 8)
     #[argh(option, default = "8")]
     pub code_size: u32,
 }
@@ -176,7 +176,7 @@ pub struct RoundtripMegarenaArgs {
     #[argh(option, default = "20.0")]
     pub period: f64,
 
-    /// LFSR code size in bits, 3..=16 (default: 8)
+    /// LFSR code size in bits, 4..=12 (default: 8)
     #[argh(option, default = "8")]
     pub code_size: u32,
 
@@ -200,7 +200,7 @@ pub struct RoundtripMegarenaArgs {
     #[argh(switch)]
     pub render_gpu: bool,
 
-    /// camera pixel size in µm/pixel, used when --render-gpu is set (default: 1.0)
+    /// camera pixel size in µm/pixel, for the GPU renderer and to report errors in µm and nm (default: 1.0)
     #[argh(option, default = "1.0")]
     pub pixel_size: f64,
 }

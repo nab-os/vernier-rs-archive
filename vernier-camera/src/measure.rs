@@ -175,7 +175,7 @@ impl std::error::Error for CodeError {}
 /// Why a frame gave no view.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MeasureError {
-    /// The target's LFSR order has no checkerboard pattern.
+    /// The target's LFSR order has no pattern (checkerboard or megarena).
     UnsupportedOrder(u32),
     /// No pair of crossed carriers in the spectrum.
     NoCarrier,

@@ -4,9 +4,8 @@
 //! A maximal LFSR of order `n` produces `2ⁿ − 1` bits where every window of `n`
 //! consecutive bits is unique. That's what makes the position absolute: any
 //! local view of `n` bits tells you where you are in the sequence. Since a
-//! maximal LFSR never hits the all-zero state, its windows already exclude
-//! all-zeros; the Vernier design also drops the all-ones word so every window
-//! keeps at least one `0`, which the decoder uses as an embedded clock.
+//! maximal LFSR never hits the all-zero state, its windows exclude all-zeros;
+//! every other `n`-bit word, all-ones included, appears exactly once.
 
 /// A maximal-length LFSR of the given order, holding the `2ⁿ − 1` bit sequence
 /// used as the absolute code along one axis.

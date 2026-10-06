@@ -1567,7 +1567,7 @@ mod tests {
 
     #[test]
     fn non_power_of_two_height_round_trips() {
-        // width=8 is PoT (uses FFT), height=6 is not (uses direct DFT).
+        // width=8 is PoT (uses FFT), height=6 is not (uses Bluestein).
         let backend = GpuBackend::new();
         let (data, layout) = checkerboard(8, 6);
         let mut buf = backend.upload(&data, layout).unwrap();

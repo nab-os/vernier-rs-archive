@@ -1,5 +1,5 @@
 //! Bitmap thumbnail extraction + template matching — the model-reduction step
-//! behind the bitmap/stamp detectors.
+//! behind the bitmap detector.
 //!
 //! Ports C++ `vernier::BitmapThumbnail` and the `cv::matchTemplate(TM_CCOEFF)` /
 //! `cv::minMaxLoc` calls used by `BitmapPatternDetector`, in pure Rust (no

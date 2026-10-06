@@ -31,7 +31,7 @@ use crate::backend_select::{BackendKind, Demodulator};
 /// board does not fill the set with near copies.
 const VIEW_INTERVAL: Duration = Duration::from_millis(700);
 
-/// How long an upload waits for the frame before it to be taken.
+/// How long an upload waits for the tracking loop to take the previous frame.
 const UPLOAD_WAIT: Duration = Duration::from_secs(5);
 
 /// Options of `vernier phone`.

@@ -24,7 +24,7 @@ pub struct RoundtripMegarena {
     pub smoothing_sigma: f32,
     /// Use the Vulkan GPU renderer instead of the CPU path.
     pub render_gpu: bool,
-    /// Camera pixel size in µm/pixel (only used when render_gpu is true).
+    /// Camera pixel size in µm/pixel, for the GPU renderer.
     #[cfg_attr(not(feature = "vulkan"), allow(dead_code))]
     pub pixel_size: f32,
 }

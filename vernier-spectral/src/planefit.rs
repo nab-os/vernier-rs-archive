@@ -68,7 +68,9 @@ pub fn fit_plane(wrapped: &[Real], width: usize, height: usize, crop_factor: Rea
 /// center through four quadrants. On well-conditioned maps the two match to
 /// machine epsilon in the gradients (differing only in the offset `c`, a
 /// convention); quarter-propagation is only more robust when the seed row/column
-/// fall on noise. Separable is kept for simplicity.
+/// fall on noise. The pipeline ([`crate::spectrum`]) uses the quarter
+/// propagation, [`crate::unwrap::quarters_unwrap_phase`]; this one backs
+/// [`fit_plane`].
 pub fn unwrap_2d(wrapped: &[Real], width: usize, height: usize) -> Vec<Real> {
     let mut phase = wrapped.to_vec();
 
@@ -95,8 +97,7 @@ pub fn unwrap_2d(wrapped: &[Real], width: usize, height: usize) -> Vec<Real> {
 }
 
 /// Fits the plane to an already-unwrapped phase surface. The production
-/// pipeline entry point (C++ `RegressionPlane::compute`); accumulation is
-/// always `f64` regardless of `Real`.
+/// pipeline entry point (C++ `RegressionPlane::compute`); accumulates in `f64`.
 ///
 /// `crop_factor` trims a border of `(crop_factor/2) * dimension` pixels on each
 /// side before fitting; coordinates remain centered on the FULL image so `c` is

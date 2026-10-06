@@ -182,7 +182,9 @@ pub struct Detector;
 impl Detector {
     /// Creates a CPU-backed detector for the given class name.
     ///
-    /// Valid names: `"PeriodicPattern"`, `"MegarenaPattern"`.
+    /// Valid names: `"PeriodicPattern"`, `"MegarenaPattern"`, `"BitmapPattern"`;
+    /// `"StampPattern"` and `"HPCodePattern"` are recognised but not yet
+    /// implemented, and their detectors fail on `compute`.
     pub fn new_instance(classname: &str) -> Result<Box<dyn PatternDetector>> {
         Self::new_instance_with(classname, CpuBackend::new())
     }
