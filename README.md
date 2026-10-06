@@ -85,6 +85,8 @@ Calibrate a webcam (frames come through `ffmpeg`, which must be installed). Hold
     --video-size 1280x720 --save-frames frames
 ```
 
+`--input-format`, `--video-size` and `--framerate` pick the camera's mode, on `calibrate-webcam` and `track` alike. Many webcams send their larger sizes only as Motion-JPEG, so ask for `--input-format mjpeg`; `ffmpeg -f v4l2 -list_formats all -i /dev/video0` lists what the camera offers.
+
 Or work from photos:
 
 ```bash
@@ -100,6 +102,8 @@ Follow the board live: every frame is solved and the pose is traced on a page at
 ```
 
 A calibration only holds at the resolution it was made at. `--device` also takes a video file, which is a way to rehearse without a camera.
+
+`track`, `phone` and `calibrate-webcam` take `--backend gpu` to demodulate the frames on a Vulkan GPU; the spectral search, the code and the board's restoration stay on the CPU. The points come out the same to within 1e-6 of a square. `cargo run --release -p vernier-gpu --example local_demod` compares both backends on a 1280×720 view.
 
 ---
 

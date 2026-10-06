@@ -18,13 +18,14 @@ use std::time::{Duration, Instant};
 use nalgebra::{Matrix3, Vector3};
 use serde_json::{Value, json};
 use vernier_camera::{
-    Attempt, Camera, Code, Field, PnpSolution, Target, Trace, View, demodulated_field,
-    measure_view_traced, solve_pnp,
+    Attempt, Camera, Code, Field, PnpSolution, Target, Trace, View, demodulated_field_with,
+    measure_view_traced_with, solve_pnp,
 };
 use vernier_core::Real;
 
 use super::calibrate::load_camera;
-use super::webcam::{Capture, Frame};
+use super::webcam::{Capture, CaptureOptions, Frame};
+use crate::backend_select::{BackendKind, Demodulator};
 
 /// The page, served at `/`.
 const PAGE: &str = include_str!("track.html");
@@ -54,27 +55,23 @@ pub struct TrackArgs {
     pub target: Target,
     /// Device ffmpeg reads frames from.
     pub device: String,
-    /// Pixel format asked of the device, if any.
-    pub format: Option<String>,
-    /// Frame size asked of the device, as `WIDTHxHEIGHT`.
-    pub video_size: Option<String>,
+    pub options: CaptureOptions,
     /// Port of the page on localhost.
     pub port: u16,
     /// File every pose is also written to, as CSV.
     pub csv: Option<PathBuf>,
+    /// Where the frames are demodulated.
+    pub backend: BackendKind,
 }
 
 /// Reads frames from the camera and tracks the board until the camera stops.
 pub fn run(args: &TrackArgs) -> Result<(), String> {
     let camera = load_camera(&args.camera)?;
+    let demodulator = Arc::new(Demodulator::new(args.backend)?);
     let shared = listen(("127.0.0.1", args.port), args.target, None, None)?;
-    let capture = Capture::open(
-        &args.device,
-        args.format.as_deref(),
-        args.video_size.as_deref(),
-    )?;
+    let capture = Capture::open(&args.device, &args.options)?;
     eprintln!("open http://localhost:{}/ to watch the pose", args.port);
-    let mut tracker = Tracker::new(shared, args.target, args.csv.as_deref())?;
+    let mut tracker = Tracker::new(shared, args.target, args.csv.as_deref(), demodulator)?;
     let mut last_index: Option<u64> = None;
     loop {
         let frame = match capture.take_newer(last_index) {
@@ -131,6 +128,8 @@ struct Snapshot {
     attempt: Option<Attempt>,
     /// The demodulated field, worked out the first time a view needs it.
     field: OnceLock<Option<Field>>,
+    /// What the field is demodulated on, the frame's own demodulator.
+    demodulator: Arc<Demodulator>,
 }
 
 impl Snapshot {
@@ -140,7 +139,13 @@ impl Snapshot {
         self.field
             .get_or_init(|| {
                 let attempt = self.attempt.as_ref()?;
-                demodulated_field(&self.pixels, self.width, self.height, attempt)
+                demodulated_field_with(
+                    &*self.demodulator,
+                    &self.pixels,
+                    self.width,
+                    self.height,
+                    attempt,
+                )
             })
             .as_ref()
     }
@@ -490,14 +495,18 @@ pub(crate) struct Tracker {
     latest_spectrum: Option<Arc<Spectrum>>,
     /// The search the spectrum came from, for its peaks.
     latest_search: Value,
+    /// Where the frames are demodulated.
+    demodulator: Arc<Demodulator>,
 }
 
 impl Tracker {
-    /// A tracker publishing to `shared`, writing poses to `csv` if given.
+    /// A tracker publishing to `shared`, writing poses to `csv` if given and
+    /// demodulating on `demodulator`.
     pub fn new(
         shared: Arc<Shared>,
         target: Target,
         csv: Option<&std::path::Path>,
+        demodulator: Arc<Demodulator>,
     ) -> Result<Self, String> {
         let csv = match csv {
             Some(path) => {
@@ -517,6 +526,7 @@ impl Tracker {
             previous_view: None,
             latest_spectrum: None,
             latest_search: Value::Null,
+            demodulator,
         })
     }
 
@@ -543,6 +553,7 @@ impl Tracker {
 
         let began = Instant::now();
         let mut processed = process(
+            &self.demodulator,
             camera,
             &self.target,
             &frame.data,
@@ -599,6 +610,7 @@ impl Tracker {
             spectrum: self.latest_spectrum.clone(),
             attempt: processed.attempt,
             field: OnceLock::new(),
+            demodulator: self.demodulator.clone(),
         });
         self.shared.publish(&event, Some(snapshot));
         Ok(())
@@ -673,6 +685,7 @@ impl Processed {
 /// Measures a frame and, given a camera, solves the board's pose. Without a
 /// camera the frame is only measured.
 fn process(
+    demodulator: &Demodulator,
     camera: Option<&Camera>,
     target: &Target,
     data: &[f32],
@@ -681,7 +694,8 @@ fn process(
     previous: Option<&View>,
 ) -> Processed {
     let clock = Instant::now();
-    let (measured, mut trace) = measure_view_traced(data, width, height, target, previous, true);
+    let (measured, mut trace) =
+        measure_view_traced_with(demodulator, data, width, height, target, previous, true);
     let measure_ms = clock.elapsed().as_secs_f64() * 1000.0;
     let spectrum = trace.spectrum.take();
     let mut debug = json!({
@@ -1355,7 +1369,16 @@ mod tests {
     fn a_frame_leaves_every_debug_image_and_its_points() {
         let (camera, target) = (camera(), Target::new(5.0, 6));
         let f = frame(&camera, &target, 0, 0.0);
-        let mut done = process(Some(&camera), &target, &f.data, f.width, f.height, None);
+        let demodulator = Arc::new(Demodulator::new(BackendKind::Cpu).unwrap());
+        let mut done = process(
+            &demodulator,
+            Some(&camera),
+            &target,
+            &f.data,
+            f.width,
+            f.height,
+            None,
+        );
         assert_eq!(done.event["ok"], json!(true), "{}", done.event);
         let points = done.debug["points"].as_array().expect("points");
         assert!(points.len() > 100);
@@ -1377,6 +1400,7 @@ mod tests {
             }),
             attempt: done.attempt,
             field: OnceLock::new(),
+            demodulator: demodulator.clone(),
         };
         let previous = done.view.take();
         for kind in [
@@ -1391,6 +1415,7 @@ mod tests {
         // The next frame reuses the carriers and skips the spectrum.
         let g = frame(&camera, &target, 1, 0.05);
         let done = process(
+            &demodulator,
             Some(&camera),
             &target,
             &g.data,
@@ -1410,7 +1435,8 @@ mod tests {
         let (camera, target) = (camera(), Target::new(5.0, 6));
         let shared = listen(("127.0.0.1", 8099), target, None, None).unwrap();
         eprintln!("open http://localhost:8099/");
-        let mut tracker = Tracker::new(shared, target, None).unwrap();
+        let demodulator = Arc::new(Demodulator::new(BackendKind::Cpu).unwrap());
+        let mut tracker = Tracker::new(shared, target, None, demodulator).unwrap();
         let start = Instant::now();
         let seconds: f64 = std::env::var("DEMO_SECONDS")
             .ok()

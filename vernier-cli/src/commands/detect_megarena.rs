@@ -13,10 +13,10 @@ use std::path::PathBuf;
 
 use vernier_core::image::GrayImage;
 use vernier_core::{ComputeBackend, Real};
-use vernier_spectral::spectrum::analyze_two;
 use vernier_pose::absolute::{
     self, CoarseDecoder, MegarenaDecoder, decode_bit_maps, detect_orientation, extract_code,
 };
+use vernier_spectral::spectrum::analyze_two;
 
 use super::debug_render;
 use vernier_pose::{Calibration, periodic};
@@ -148,7 +148,10 @@ impl BackendTask for DetectMegarena {
         if self.verbose {
             eprintln!(
                 "msb1={}  msb2={}  k3={}  swap={}",
-                code.msb1, code.msb2, code.k3, code.msb1 != code.msb2
+                code.msb1,
+                code.msb2,
+                code.k3,
+                code.msb1 != code.msb2
             );
             eprintln!(
                 "x_periodshift={}  y_periodshift={}",

@@ -35,6 +35,12 @@ fn exit_on_error(result: Result<(), String>) {
     }
 }
 
+/// The backend named on the command line, for the camera commands.
+fn backend(name: &str) -> Result<BackendKind, String> {
+    BackendKind::parse(name)
+        .ok_or_else(|| format!("unknown backend '{name}'; try {}", BackendKind::hint()))
+}
+
 fn main() {
     let top: TopLevel = argh::from_env();
 
@@ -79,14 +85,19 @@ fn main() {
             }
             webcam::run(&webcam::WebcamArgs {
                 device: a.device.clone(),
-                format: a.format.clone(),
-                video_size: a.video_size.clone(),
+                options: webcam::CaptureOptions {
+                    format: a.format.clone(),
+                    input_format: a.input_format.clone(),
+                    video_size: a.video_size.clone(),
+                    framerate: a.framerate.clone(),
+                },
                 views: a.views,
                 interval: std::time::Duration::from_secs_f64(a.interval),
                 target: calibrate::target(a.square, a.code_size, a.diamonds)?,
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
                 save_frames: a.save_frames.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::Phone(a) => exit_on_error((|| {
@@ -97,6 +108,7 @@ fn main() {
                 model: calibrate::model(&a.model)?,
                 port: a.port,
                 csv: a.csv.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::SolvePnp(a) => exit_on_error((|| {
@@ -119,10 +131,15 @@ fn main() {
                 camera,
                 target: calibrate::target(a.square, a.code_size, a.diamonds)?,
                 device: a.device.clone(),
-                format: a.format.clone(),
-                video_size: Some(video_size),
+                options: webcam::CaptureOptions {
+                    format: a.format.clone(),
+                    input_format: a.input_format.clone(),
+                    video_size: Some(video_size),
+                    framerate: a.framerate.clone(),
+                },
                 port: a.port,
                 csv: a.csv.as_ref().map(PathBuf::from),
+                backend: backend(&a.backend)?,
             })
         })()),
         Command::Undistort(a) => exit_on_error(undistort::run(&undistort::UndistortArgs {
