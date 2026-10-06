@@ -38,4 +38,4 @@ run-pnp-megarena: calibrate_camera solve_pnp
 	./solve_pnp --megarena camera-megarena.json 2 8 megarena-views/view_*.pgm
 
 clean:
-	rm -rf bench calibrate_camera solve_pnp megarena-views camera.json camera-megarena.json
+	rm -rf detect bench calibrate_camera solve_pnp megarena-views camera.json camera-megarena.json

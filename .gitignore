@@ -5,6 +5,8 @@
 /vernier-webapp/target
 /vernier-webapp/dist
 /vernier-webapp/.dioxus
+/vernier-cabi/examples/detect
+/vernier-cabi/examples/bench
 /vernier-cabi/examples/megarena-views
 /vernier-cabi/examples/calibrate_camera
 /vernier-cabi/examples/solve_pnp
