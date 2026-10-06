@@ -14,17 +14,13 @@ use vernier_core::{Complex32, ComputeBackend, ComputeJob};
 use vernier_cpu::CpuBackend;
 use vernier_spectral::spectrum::Detection;
 
-use crate::annotate::{color, Canvas};
+use crate::annotate::{Canvas, color};
 use crate::pgm;
 
 /// Signed frequency of a bin (bins past N/2 are negative).
 fn signed(f: usize, n: usize) -> isize {
     let (f, n) = (f as isize, n as isize);
-    if f > n / 2 {
-        f - n
-    } else {
-        f
-    }
+    if f > n / 2 { f - n } else { f }
 }
 
 /// Renders the FFT-magnitude spectrum (log, fftshifted) with the two detected
@@ -39,8 +35,13 @@ pub fn render_spectrum_debug(
 ) -> Result<(), String> {
     let backend = CpuBackend::new();
     let layout = BufferLayout::packed(width, height);
-    let complex: Vec<Complex32> = image_gray.iter().map(|&v| Complex32::new(v as f32, 0.0)).collect();
-    let mut buf = backend.upload(&complex, layout).map_err(|e| format!("{e:?}"))?;
+    let complex: Vec<Complex32> = image_gray
+        .iter()
+        .map(|&v| Complex32::new(v as f32, 0.0))
+        .collect();
+    let mut buf = backend
+        .upload(&complex, layout)
+        .map_err(|e| format!("{e:?}"))?;
     {
         let mut job = backend.begin().map_err(|e| format!("{e:?}"))?;
         job.fft2d(&mut buf).map_err(|e| format!("{e:?}"))?;
@@ -49,11 +50,14 @@ pub fn render_spectrum_debug(
     let spec = backend.download(&buf).map_err(|e| format!("{e:?}"))?;
 
     // Log magnitude, fftshifted, normalized to 0..1 for the background.
-    let mag: Vec<f64> = spec.iter().map(|c| (1.0 + (c.norm_sqr() as f64).sqrt()).ln()).collect();
+    let mag: Vec<f64> = spec
+        .iter()
+        .map(|c| (1.0 + (c.norm_sqr() as f64).sqrt()).ln())
+        .collect();
     let shifted = pgm::fftshift(width, height, &mag);
-    let (lo, hi) = shifted.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &v| {
-        (lo.min(v), hi.max(v))
-    });
+    let (lo, hi) = shifted
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
     let span = if hi > lo { hi - lo } else { 1.0 };
     let norm: Vec<f64> = shifted.iter().map(|&v| (v - lo) / span).collect();
 
@@ -64,7 +68,10 @@ pub fn render_spectrum_debug(
     canvas.circle(center_x, center_y, min_radius as isize, color::CYAN);
 
     // The two detected carriers, in fftshifted coordinates (DC at center).
-    for (dir, draw_color) in [(&detection.dir1, color::RED), (&detection.dir2, color::YELLOW)] {
+    for (dir, draw_color) in [
+        (&detection.dir1, color::RED),
+        (&detection.dir2, color::YELLOW),
+    ] {
         let (bx, by) = dir.peak_bin;
         let sx = signed(bx, width);
         let sy = signed(by, height);
