@@ -17,6 +17,11 @@
 //!    measured lattice on the board.
 //! 5. Paint the coding squares back to a plain checkerboard and measure the
 //!    fine grid again, refitting the curvature on the fine nodes themselves.
+//!
+//! The windows go to a [`LocalDemodulator`] in batches: the seeds, each wave
+//! of the walk, each pass of the fine grid. [`CpuDemodulator`] sums them in
+//! `f64` on the CPU; `vernier-gpu`'s `GpuBackend` on a GPU, through
+//! [`measure_view_traced_with`].
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,8 +29,10 @@ use nalgebra::{SMatrix, SVector};
 use rayon::prelude::*;
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex64;
-use vernier_core::Real;
 use vernier_core::scalar::consts::{PI, TAU};
+use vernier_core::{
+    CarrierModel as Carrier, DemodWindow, FieldDemod, LocalDemodulator, Real, WindowDemod as Demod,
+};
 use vernier_patterns::checkerboard::Checkerboard;
 use vernier_pose::checkerboard::{CheckerboardCode, CheckerboardError, extract_code_from_phases};
 
@@ -115,6 +122,9 @@ pub struct View {
     pub code: Result<Code, CodeError>,
     /// Carrier period where the walk started, in pixels.
     pub period: Real,
+    /// Defocus fitted while painting the code back, Gaussian sigma in pixels;
+    /// the next frame's blur fit starts from it. None without a code.
+    pub defocus: Option<Real>,
     /// The carrier pair the walk started from, for the next frame.
     carriers: [[Real; 2]; 2],
 }
@@ -173,6 +183,8 @@ pub enum MeasureError {
     NoBoard,
     /// Fewer than the minimum of points survived; holds how many did.
     TooFewPoints(usize),
+    /// The demodulator failed: a device lost, say.
+    Backend,
 }
 
 impl std::fmt::Display for MeasureError {
@@ -182,6 +194,7 @@ impl std::fmt::Display for MeasureError {
             Self::NoCarrier => write!(f, "no checkerboard carrier in the image"),
             Self::NoBoard => write!(f, "no region of the image holds the board cleanly"),
             Self::TooFewPoints(n) => write!(f, "only {n} points measured"),
+            Self::Backend => write!(f, "the demodulator failed"),
         }
     }
 }
@@ -255,6 +268,8 @@ pub struct Attempt {
     pub restored: Option<Vec<f32>>,
     /// Defocus fitted while painting them back, Gaussian sigma in pixels.
     pub defocus: Option<Real>,
+    /// Times the blur fit evaluated its misfit, a measure of its cost.
+    pub defocus_misfits: usize,
 }
 
 impl Attempt {
@@ -321,59 +336,56 @@ pub fn demodulated_field(
     height: usize,
     attempt: &Attempt,
 ) -> Option<Field> {
+    demodulated_field_with(&CpuDemodulator, intensity, width, height, attempt)
+}
+
+/// [`demodulated_field`] on the given demodulator. None also when it fails.
+pub fn demodulated_field_with<D: LocalDemodulator>(
+    demodulator: &D,
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    attempt: &Attempt,
+) -> Option<Field> {
     let maps = attempt.phase.as_ref()?;
-    let sigma = FINE_WINDOW * attempt.period;
-    let pixel_count = width * height;
-    let value = |i: usize| intensity[i] as Real;
-    let local_mean = blur_with(width, height, sigma, value);
-    let local_square = blur_with(width, height, sigma, |i| value(i) * value(i));
-    let demodulate_carrier = |c: usize| {
+    // The measured phase on the board, the global plane wave off it.
+    let reference = |c: usize| -> Vec<Real> {
         let k = attempt.carriers[c];
-        // The measured phase on the board, the global plane wave off it.
-        let reference = |i: usize| {
-            let p = maps[i][c];
-            if p.is_finite() {
-                p as Real
-            } else {
-                k[0] * (i % width) as Real + k[1] * (i / width) as Real
-            }
-        };
-        let blurred = |f: &(dyn Fn(usize) -> Real + Sync)| blur_with(width, height, sigma, f);
-        let signal_re = blurred(&|i| value(i) * reference(i).cos());
-        let signal_im = blurred(&|i| -value(i) * reference(i).sin());
-        let unit_re = blurred(&|i| reference(i).cos());
-        let unit_im = blurred(&|i| -reference(i).sin());
-        let mut phase = vec![0.0f32; pixel_count];
-        let mut amplitude = vec![0.0f32; pixel_count];
-        phase
-            .par_iter_mut()
-            .zip(amplitude.par_iter_mut())
+        maps.par_iter()
             .enumerate()
-            .for_each(|(i, (p, a))| {
-                // Σw·(I − mean)·e^{−iψ} over Σw, as `demodulate` does.
-                let z = Complex64::new(
-                    signal_re[i] - local_mean[i] * unit_re[i],
-                    signal_im[i] - local_mean[i] * unit_im[i],
-                );
-                let deviation = (local_square[i] - local_mean[i] * local_mean[i])
-                    .max(0.0)
-                    .sqrt();
-                *p = (reference(i) + z.arg()) as f32;
-                *a = if deviation > 0.0 {
-                    (z.norm() / deviation) as f32
+            .map(|(i, m)| {
+                let p = m[c];
+                if p.is_finite() {
+                    p as Real
                 } else {
-                    0.0
-                };
-            });
-        (phase, amplitude)
+                    k[0] * (i % width) as Real + k[1] * (i / width) as Real
+                }
+            })
+            .collect()
     };
-    let (phase1, amplitude1) = demodulate_carrier(0);
-    let (phase2, amplitude2) = demodulate_carrier(1);
+    let references = [reference(0), reference(1)];
+    let frame = demodulator.load(intensity, width, height).ok()?;
+    let found = demodulator
+        .demodulate_field(
+            &frame,
+            [&references[0], &references[1]],
+            FINE_WINDOW * attempt.period,
+        )
+        .ok()?;
+    let unwrapped = |c: usize| -> Vec<f32> {
+        references[c]
+            .par_iter()
+            .zip(&found.phase[c])
+            .map(|(&r, &p)| (r + p) as f32)
+            .collect()
+    };
+    let amplitude =
+        |c: usize| -> Vec<f32> { found.amplitude[c].iter().map(|&a| a as f32).collect() };
     Some(Field {
         width,
         height,
-        phase: [phase1, phase2],
-        amplitude: [amplitude1, amplitude2],
+        phase: [unwrapped(0), unwrapped(1)],
+        amplitude: [amplitude(0), amplitude(1)],
         carriers: attempt.carriers,
     })
 }
@@ -395,60 +407,147 @@ impl Stopwatch {
     }
 }
 
-/// A grayscale frame, row-major.
+/// A grayscale frame, row-major: what [`CpuDemodulator`] reads.
 #[derive(Clone, Copy)]
-struct Image<'a> {
+pub struct Image<'a> {
     data: &'a [f32],
     width: usize,
     height: usize,
 }
 
-/// Local phase model of one carrier around a point: gradient `k` and Hessian
-/// `(xx, xy, yy)`, in radians per pixel.
+/// The reference [`LocalDemodulator`]: every window summed in `f64` on the
+/// CPU, windows spread over threads.
 #[derive(Clone, Copy, Debug, Default)]
-struct Carrier {
-    k: [Real; 2],
-    h: [Real; 3],
-}
+pub struct CpuDemodulator;
 
-impl Carrier {
-    /// A plane wave: constant frequency `k`, no curvature.
-    fn plane(k: [Real; 2]) -> Self {
-        Self { k, h: [0.0; 3] }
+impl LocalDemodulator for CpuDemodulator {
+    type Frame<'a> = Image<'a>;
+
+    fn load<'a>(
+        &'a self,
+        data: &'a [f32],
+        width: usize,
+        height: usize,
+    ) -> vernier_core::Result<Image<'a>> {
+        Ok(Image {
+            data,
+            width,
+            height,
+        })
     }
 
-    /// The phase `(qx, qy)` pixels from where the model's phase is `base`.
-    fn phase_at(&self, base: Real, qx: Real, qy: Real) -> Real {
-        let Carrier { k, h } = *self;
-        base + k[0] * qx
-            + k[1] * qy
-            + 0.5 * (h[0] * qx * qx + 2.0 * h[1] * qx * qy + h[2] * qy * qy)
+    fn demodulate_windows(
+        &self,
+        image: &Image<'_>,
+        windows: &[DemodWindow],
+    ) -> vernier_core::Result<Vec<Demod>> {
+        Ok(windows
+            .par_iter()
+            .map(|w| demodulate(image, w.x, w.y, &w.carriers, w.sigma))
+            .collect())
+    }
+
+    fn demodulate_field(
+        &self,
+        image: &Image<'_>,
+        references: [&[Real]; 2],
+        sigma: Real,
+    ) -> vernier_core::Result<FieldDemod> {
+        let (width, height) = (image.width, image.height);
+        let value = |i: usize| image.data[i] as Real;
+        let local_mean = blur_with(width, height, sigma, value);
+        let local_square = blur_with(width, height, sigma, |i| value(i) * value(i));
+        let demodulate_carrier = |reference: &[Real]| {
+            let blurred = |f: &(dyn Fn(usize) -> Real + Sync)| blur_with(width, height, sigma, f);
+            let signal_re = blurred(&|i| value(i) * reference[i].cos());
+            let signal_im = blurred(&|i| -value(i) * reference[i].sin());
+            let unit_re = blurred(&|i| reference[i].cos());
+            let unit_im = blurred(&|i| -reference[i].sin());
+            let mut phase = vec![0.0; width * height];
+            let mut amplitude = vec![0.0; width * height];
+            phase
+                .par_iter_mut()
+                .zip(amplitude.par_iter_mut())
+                .enumerate()
+                .for_each(|(i, (p, a))| {
+                    // Σw·(I − mean)·e^{−iψ} over Σw, as `demodulate` does.
+                    let z = Complex64::new(
+                        signal_re[i] - local_mean[i] * unit_re[i],
+                        signal_im[i] - local_mean[i] * unit_im[i],
+                    );
+                    let deviation = (local_square[i] - local_mean[i] * local_mean[i])
+                        .max(0.0)
+                        .sqrt();
+                    *p = z.arg();
+                    *a = if deviation > 0.0 {
+                        z.norm() / deviation
+                    } else {
+                        0.0
+                    };
+                });
+            (phase, amplitude)
+        };
+        let (phase1, amplitude1) = demodulate_carrier(references[0]);
+        let (phase2, amplitude2) = demodulate_carrier(references[1]);
+        Ok(FieldDemod {
+            phase: [phase1, phase2],
+            amplitude: [amplitude1, amplitude2],
+        })
+    }
+}
+
+/// A frame loaded on a demodulator, with the pixels the host-side stages
+/// (the spectrum, the code, the restoration) read.
+struct Frame<'a, D: LocalDemodulator + 'a> {
+    image: Image<'a>,
+    demodulator: &'a D,
+    loaded: D::Frame<'a>,
+}
+
+impl<'a, D: LocalDemodulator> Frame<'a, D> {
+    fn load(
+        demodulator: &'a D,
+        data: &'a [f32],
+        width: usize,
+        height: usize,
+    ) -> Result<Self, MeasureError> {
+        Ok(Self {
+            image: Image {
+                data,
+                width,
+                height,
+            },
+            demodulator,
+            loaded: demodulator
+                .load(data, width, height)
+                .map_err(|_| MeasureError::Backend)?,
+        })
+    }
+
+    /// One [`Demod`] per window, in order.
+    fn demodulate(&self, windows: &[DemodWindow]) -> Result<Vec<Demod>, MeasureError> {
+        if windows.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.demodulator
+            .demodulate_windows(&self.loaded, windows)
+            .map_err(|_| MeasureError::Backend)
+    }
+}
+
+/// A window of `sigma` pixels at a pixel, against `carriers`.
+fn window(x: usize, y: usize, carriers: &[Carrier; 2], sigma: Real) -> DemodWindow {
+    DemodWindow {
+        x,
+        y,
+        sigma,
+        carriers: *carriers,
     }
 }
 
 /// Plane-wave models of both carriers.
 fn planes(k: [[Real; 2]; 2]) -> [Carrier; 2] {
     [Carrier::plane(k[0]), Carrier::plane(k[1])]
-}
-
-/// What a window found of both carriers.
-#[derive(Clone, Copy, Debug)]
-struct Demod {
-    /// Against the reference, in radians, wrapped.
-    phase: [Real; 2],
-    /// Carrier amplitude over local contrast, per carrier.
-    quality: [Real; 2],
-    /// How far the carrier's weight sits from the window centre, in window
-    /// sigmas, worst carrier. A window hanging off the board or the frame
-    /// leans away from the edge, and its phase is biased.
-    offset: Real,
-}
-
-impl Demod {
-    /// The worse carrier's quality.
-    fn quality(&self) -> Real {
-        self.quality[0].min(self.quality[1])
-    }
 }
 
 /// An angle brought into `-π..=π`.
@@ -923,32 +1022,45 @@ fn period_of(carriers: &[Carrier; 2]) -> Real {
     TAU / (0.5 * (norm(carriers[0].k) + norm(carriers[1].k)))
 }
 
-/// Local frequency of both carriers at a node, from the phase half a period
-/// either way, unwrapped against the frequency we expected. None when the
-/// probe would leave the frame.
-fn local_frequency(
+/// The probes [`local_frequency`] reads at a node: windows half a period
+/// either way, left, right, up and down. None when one would leave the frame.
+fn frequency_probes(
     image: &Image,
     x: usize,
     y: usize,
     expected: &[Carrier; 2],
-) -> Option<[[Real; 2]; 2]> {
+) -> Option<[DemodWindow; 4]> {
     let period = period_of(expected);
     let sigma = COARSE_WINDOW * period;
     let delta = ((0.5 * period).round() as usize).max(1);
     if x < delta || y < delta || x + delta >= image.width || y + delta >= image.height {
         return None;
     }
-    let at = |px: usize, py: usize| demodulate(image, px, py, expected, sigma);
-    let (left, right) = (at(x - delta, y), at(x + delta, y));
-    let (up, down) = (at(x, y - delta), at(x, y + delta));
-    let baseline = 2.0 * delta as Real;
+    let at = |px: usize, py: usize| window(px, py, expected, sigma);
+    Some([
+        at(x - delta, y),
+        at(x + delta, y),
+        at(x, y - delta),
+        at(x, y + delta),
+    ])
+}
+
+/// Local frequency of both carriers at a node, from the phase its
+/// [`frequency_probes`] found, unwrapped against the frequency we expected.
+fn local_frequency(
+    expected: &[Carrier; 2],
+    probes: &[DemodWindow; 4],
+    found: &[Demod],
+) -> [[Real; 2]; 2] {
+    let [left, right, up, down] = [0, 1, 2, 3].map(|i| found[i]);
+    let baseline = (probes[1].x - probes[0].x) as Real;
     let mut k = [[0.0; 2]; 2];
     for (c, carrier) in expected.iter().enumerate() {
         let e = carrier.k;
         k[c][0] = e[0] + wrap(right.phase[c] - left.phase[c] - e[0] * baseline) / baseline;
         k[c][1] = e[1] + wrap(down.phase[c] - up.phase[c] - e[1] * baseline) / baseline;
     }
-    Some(k)
+    k
 }
 
 /// A node of the walk: both unwrapped phases, both local frequencies and the
@@ -1030,23 +1142,23 @@ impl Grid {
 }
 
 /// Walks the coarse grid out from the best seed, breadth first, each wave in
-/// parallel. A node joins when both carriers are clean there and its phase
+/// one batch. A node joins when both carriers are clean there and its phase
 /// lands within a quarter turn of what its parent predicts.
-fn walk(
-    image: &Image,
+fn walk<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     start: [[Real; 2]; 2],
     period: Real,
     attempt: &mut Attempt,
 ) -> Result<HashMap<GridNode, Node>, MeasureError> {
-    let (seed, seed_quality) = best_seed(image, grid, start, period)?;
+    let (seed, seed_quality) = best_seed(frame, grid, start, period)?;
     attempt.seed = Some((grid.point(seed), seed_quality));
     if seed_quality < MIN_QUALITY {
         return Err(MeasureError::NoBoard);
     }
     let mut nodes = HashMap::new();
-    nodes.insert(seed, measure_seed(image, grid, seed, start)?);
-    let refused = grow(image, grid, &mut nodes, seed);
+    nodes.insert(seed, measure_seed(frame, grid, seed, start)?);
+    let refused = grow(frame, grid, &mut nodes, seed)?;
     attempt.coarse = nodes
         .iter()
         .map(|(&n, node)| (grid.point(n), node.quality))
@@ -1058,12 +1170,13 @@ fn walk(
 /// The coarse node where the global carriers read best, and their quality
 /// there. Only nodes away from the frame edge are tried, where the window is
 /// whole and the frequency probe has room.
-fn best_seed(
-    image: &Image,
+fn best_seed<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     start: [[Real; 2]; 2],
     period: Real,
 ) -> Result<(GridNode, Real), MeasureError> {
+    let image = &frame.image;
     let sigma = COARSE_WINDOW * period;
     let start_planes = planes(start);
     let margin = (2.0 * sigma).ceil() as usize;
@@ -1074,26 +1187,25 @@ fn best_seed(
             x >= margin && y >= margin && x + margin < image.width && y + margin < image.height
         })
         .collect();
-    let seeds: Vec<(GridNode, Real)> = candidates
-        .into_par_iter()
-        .map(|node| {
+    let windows: Vec<DemodWindow> = candidates
+        .iter()
+        .map(|&node| {
             let (x, y) = grid.pixel(node);
-            (
-                node,
-                demodulate(image, x, y, &start_planes, sigma).quality(),
-            )
+            window(x, y, &start_planes, sigma)
         })
         .collect();
-    seeds
+    let found = frame.demodulate(&windows)?;
+    candidates
         .into_iter()
+        .zip(found.iter().map(Demod::quality))
         .max_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or(MeasureError::NoBoard)
 }
 
 /// The seed node: its local frequency refined from the global carriers over
 /// three probes, then its phase against it.
-fn measure_seed(
-    image: &Image,
+fn measure_seed<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     seed: GridNode,
     start: [[Real; 2]; 2],
@@ -1101,16 +1213,14 @@ fn measure_seed(
     let (sx, sy) = grid.pixel(seed);
     let mut k = start;
     for _ in 0..3 {
-        k = local_frequency(image, sx, sy, &planes(k)).ok_or(MeasureError::NoBoard)?;
+        let expected = planes(k);
+        let probes =
+            frequency_probes(&frame.image, sx, sy, &expected).ok_or(MeasureError::NoBoard)?;
+        k = local_frequency(&expected, &probes, &frame.demodulate(&probes)?);
     }
     let carriers = planes(k);
-    let found = demodulate(
-        image,
-        sx,
-        sy,
-        &carriers,
-        COARSE_WINDOW * period_of(&carriers),
-    );
+    let sigma = COARSE_WINDOW * period_of(&carriers);
+    let found = frame.demodulate(&[window(sx, sy, &carriers, sigma)])?[0];
     Ok(Node {
         phase: found.phase,
         k,
@@ -1122,12 +1232,12 @@ fn measure_seed(
 /// is reached from its best-quality neighbour already in the walk; a node
 /// refused [`WALK_TRIES`] times is given up. Returns the refused nodes with
 /// how many times each was.
-fn grow(
-    image: &Image,
+fn grow<D: LocalDemodulator>(
+    frame: &Frame<D>,
     grid: &Grid,
     nodes: &mut HashMap<GridNode, Node>,
     seed: GridNode,
-) -> HashMap<GridNode, u8> {
+) -> Result<HashMap<GridNode, u8>, MeasureError> {
     let mut refused: HashMap<GridNode, u8> = HashMap::new();
     let mut fresh = vec![seed];
     while !fresh.is_empty() {
@@ -1141,50 +1251,110 @@ fn grow(
         frontier.sort_unstable();
         frontier.dedup();
 
-        let measured: Vec<(GridNode, Option<Node>)> = frontier
-            .par_iter()
+        let steps: Vec<Step> = frontier
+            .iter()
             .map(|&target| {
-                let parent = grid
+                let (from, parent) = grid
                     .neighbours(target)
-                    .filter_map(|n| nodes.get(&n).map(|node| (n, node)))
+                    .filter_map(|n| nodes.get(&n).map(|node| (n, *node)))
                     .max_by(|a, b| a.1.quality.total_cmp(&b.1.quality))
                     .expect("frontier nodes touch the walk");
-                (target, step_to(image, grid, parent, target))
+                Step::new(grid, from, parent, target)
             })
             .collect();
+        let measured = step_all(frame, grid, &steps)?;
 
         fresh.clear();
-        for (target, node) in measured {
+        for (step, node) in steps.iter().zip(measured) {
             match node {
                 Some(node) => {
-                    nodes.insert(target, node);
-                    fresh.push(target);
+                    nodes.insert(step.target, node);
+                    fresh.push(step.target);
                 }
-                None => *refused.entry(target).or_insert(0) += 1,
+                None => *refused.entry(step.target).or_insert(0) += 1,
             }
         }
     }
-    refused
+    Ok(refused)
 }
 
-/// Measures `target` from its neighbour `from` in the walk: demodulates it
-/// against the parent's frequency, and unwraps its phase against the
-/// parent's, carried over with the mean of both frequencies. None when the
-/// carriers are faint there or the phase misses by more than a quarter turn.
-fn step_to(
-    image: &Image,
-    grid: &Grid,
-    (from, parent): (GridNode, &Node),
+/// A step of the walk, from `parent` at node `from` to `target`, and the
+/// window that measures it against the parent's frequency.
+struct Step {
+    from: GridNode,
+    parent: Node,
     target: GridNode,
-) -> Option<Node> {
-    let (x, y) = grid.pixel(target);
-    let expected = planes(parent.k);
-    let found = demodulate(image, x, y, &expected, COARSE_WINDOW * period_of(&expected));
-    if found.quality() < MIN_QUALITY {
-        return None;
+    expected: [Carrier; 2],
+    window: DemodWindow,
+}
+
+impl Step {
+    fn new(grid: &Grid, from: GridNode, parent: Node, target: GridNode) -> Self {
+        let (x, y) = grid.pixel(target);
+        let expected = planes(parent.k);
+        Self {
+            from,
+            parent,
+            target,
+            expected,
+            window: window(x, y, &expected, COARSE_WINDOW * period_of(&expected)),
+        }
     }
-    let k = local_frequency(image, x, y, &expected).unwrap_or(parent.k);
-    let (px, py) = grid.pixel(from);
+}
+
+/// Takes every step of a wave, in two batches: the targets, then the
+/// frequency probes of those whose carriers are clean. None for a step
+/// refused.
+fn step_all<D: LocalDemodulator>(
+    frame: &Frame<D>,
+    grid: &Grid,
+    steps: &[Step],
+) -> Result<Vec<Option<Node>>, MeasureError> {
+    let windows: Vec<DemodWindow> = steps.iter().map(|s| s.window).collect();
+    let found = frame.demodulate(&windows)?;
+    // Each clean target's probes, if they stay in the frame.
+    let probes: Vec<Option<[DemodWindow; 4]>> = steps
+        .iter()
+        .zip(&found)
+        .map(|(step, found)| {
+            if found.quality() < MIN_QUALITY {
+                return None;
+            }
+            let DemodWindow { x, y, .. } = step.window;
+            frequency_probes(&frame.image, x, y, &step.expected)
+        })
+        .collect();
+    let probe_windows: Vec<DemodWindow> = probes.iter().flatten().flatten().copied().collect();
+    let mut probed = frame.demodulate(&probe_windows)?.into_iter();
+    Ok(steps
+        .iter()
+        .zip(&found)
+        .zip(&probes)
+        .map(|((step, &found), probes)| {
+            if found.quality() < MIN_QUALITY {
+                return None;
+            }
+            let k = match probes {
+                Some(probes) => {
+                    let probed: Vec<Demod> = probed.by_ref().take(4).collect();
+                    local_frequency(&step.expected, probes, &probed)
+                }
+                None => step.parent.k,
+            };
+            step_to(grid, step, found, k)
+        })
+        .collect())
+}
+
+/// Measures `step.target` from its neighbour in the walk, given what its
+/// window found against the parent's frequency and its own local frequency
+/// `k`: unwraps its phase against the parent's, carried over with the mean
+/// of both frequencies. None when the phase misses by more than a quarter
+/// turn.
+fn step_to(grid: &Grid, step: &Step, found: Demod, k: [[Real; 2]; 2]) -> Option<Node> {
+    let parent = &step.parent;
+    let (x, y) = grid.pixel(step.target);
+    let (px, py) = grid.pixel(step.from);
     let (dx, dy) = (x as Real - px as Real, y as Real - py as Real);
     let mut phase = [0.0; 2];
     for c in 0..2 {
@@ -1330,12 +1500,23 @@ struct Sample {
 /// Demodulates each node against its predicted phase and local model. A node
 /// is kept when both carriers are clean and land within a sixth of a turn of
 /// the prediction.
-fn measure_fine(image: &Image, fine: &Grid, predictions: &[Prediction]) -> Vec<Sample> {
-    predictions
-        .par_iter()
-        .filter_map(|&(node, predicted, model)| {
+fn measure_fine<D: LocalDemodulator>(
+    frame: &Frame<D>,
+    fine: &Grid,
+    predictions: &[Prediction],
+) -> Result<Vec<Sample>, MeasureError> {
+    let windows: Vec<DemodWindow> = predictions
+        .iter()
+        .map(|&(node, _, model)| {
             let (x, y) = fine.pixel(node);
-            let found = demodulate(image, x, y, &model, FINE_WINDOW * period_of(&model));
+            window(x, y, &model, FINE_WINDOW * period_of(&model))
+        })
+        .collect();
+    let found = frame.demodulate(&windows)?;
+    Ok(predictions
+        .iter()
+        .zip(found)
+        .filter_map(|(&(node, predicted, model), found)| {
             if found.quality() < MIN_QUALITY {
                 return None;
             }
@@ -1355,7 +1536,7 @@ fn measure_fine(image: &Image, fine: &Grid, predictions: &[Prediction]) -> Vec<S
                 quality: found.quality(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// Measures one grayscale frame (row-major, `0.0..=1.0`).
@@ -1398,10 +1579,54 @@ pub fn measure_view_traced(
     measure(intensity, width, height, target, previous, images)
 }
 
+/// [`measure_view_traced`] with the windows demodulated on `demodulator`,
+/// a GPU say. The spectral search, the code and the restoration stay on the
+/// CPU.
+pub fn measure_view_traced_with<D: LocalDemodulator>(
+    demodulator: &D,
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    target: &Target,
+    previous: Option<&View>,
+    images: bool,
+) -> (Result<View, MeasureError>, Trace) {
+    measure_on(
+        demodulator,
+        intensity,
+        width,
+        height,
+        target,
+        previous,
+        images,
+    )
+}
+
+/// [`measure_on`] the CPU.
+fn measure(
+    intensity: &[f32],
+    width: usize,
+    height: usize,
+    target: &Target,
+    previous: Option<&View>,
+    images: bool,
+) -> (Result<View, MeasureError>, Trace) {
+    measure_on(
+        &CpuDemodulator,
+        intensity,
+        width,
+        height,
+        target,
+        previous,
+        images,
+    )
+}
+
 /// What the public `measure_view*` functions share: tries the previous
 /// frame's carriers, then each pair the spectral search finds, keeping the
 /// first view that reads the code, else the one with the most points.
-fn measure(
+fn measure_on<D: LocalDemodulator>(
+    demodulator: &D,
     intensity: &[f32],
     width: usize,
     height: usize,
@@ -1413,18 +1638,20 @@ fn measure(
     let Some(board) = target.printed() else {
         return (Err(MeasureError::UnsupportedOrder(target.order)), trace);
     };
-    let image = Image {
-        data: intensity,
-        width,
-        height,
+    let frame = match Frame::load(demodulator, intensity, width, height) {
+        Ok(frame) => frame,
+        Err(e) => return (Err(e), trace),
     };
+    // The blur changes little from one frame to the next, so the fit starts
+    // from the previous one's.
+    let hint = previous.and_then(|p| p.defocus);
     let follow = |carriers, from_previous, trace: &mut Trace| {
         let mut attempt = Attempt {
             from_previous,
             kind: target.kind,
             ..Attempt::default()
         };
-        let view = measure_with(&image, carriers, target, &board, &mut attempt, images);
+        let view = measure_with(&frame, carriers, hint, target, &board, &mut attempt, images);
         attempt.error = view.as_ref().err().copied();
         trace.attempts.push(attempt);
         view
@@ -1438,7 +1665,7 @@ fn measure(
     }
 
     let mut clock = Stopwatch::start();
-    let search = find_carriers(&image, images);
+    let search = find_carriers(&frame.image, images);
     trace.searched = true;
     trace.search_ms = clock.lap();
     trace.peaks = search.peaks;
@@ -1465,15 +1692,17 @@ fn measure(
 }
 
 /// Follows one carrier pair through every stage of the module docs, recording
-/// each in `attempt`.
-fn measure_with(
-    image: &Image,
+/// each in `attempt`. `defocus_hint` is where the blur fit starts looking.
+fn measure_with<D: LocalDemodulator>(
+    frame: &Frame<D>,
     carriers: [[Real; 2]; 2],
+    defocus_hint: Option<Real>,
     target: &Target,
     board: &Printed,
     attempt: &mut Attempt,
     images: bool,
 ) -> Result<View, MeasureError> {
+    let image = &frame.image;
     let (width, height) = (image.width, image.height);
     let period = period_of(&planes(carriers));
     attempt.carriers = carriers;
@@ -1487,7 +1716,7 @@ fn measure_with(
         ((COARSE_STEP * period).round() as usize).max(4),
     );
     attempt.coarse_step = coarse.step;
-    let nodes = walk(image, &coarse, carriers, period, attempt);
+    let nodes = walk(frame, &coarse, carriers, period, attempt);
     attempt.timings.push(("walk", clock.lap()));
     let nodes = nodes?;
     let patches = fit_patches(&coarse, &nodes);
@@ -1498,7 +1727,7 @@ fn measure_with(
     let predictions = predict_fine(&coarse, &patches, &fine);
     attempt.funnel.push(("predicted", predictions.len()));
     attempt.timings.push(("patches", clock.lap()));
-    let mut samples = measure_fine(image, &fine, &predictions);
+    let mut samples = measure_fine(frame, &fine, &predictions)?;
     attempt.funnel.push(("first pass", samples.len()));
     let predicted: Vec<_> = predictions.iter().map(|p| p.0).collect();
     attempt
@@ -1521,7 +1750,7 @@ fn measure_with(
     // they are painted back too.
     let (plain, defocus) = match (code.as_ref(), board) {
         (Ok(Code::Checkerboard(code)), Printed::Checkerboard(board)) => {
-            let (restored, defocus) = restore(image, &maps, code, board, period);
+            let (restored, defocus) = restore(image, &maps, code, board, period, defocus_hint);
             (Some(restored), defocus)
         }
         (Ok(Code::Megarena(code)), Printed::Megarena(_)) => {
@@ -1538,19 +1767,21 @@ fn measure_with(
         }
         _ => (None, None),
     };
-    attempt.defocus = defocus;
-    let clean = plain.as_deref().map_or(*image, |data| Image {
-        data,
-        width,
-        height,
-    });
+    attempt.defocus = defocus.map(|d| d.0);
+    attempt.defocus_misfits = defocus.map_or(0, |d| d.1);
+    let defocus = attempt.defocus;
     let first_pass = nodes_of(&samples);
-    let again: Vec<_> = samples.iter().map(|s| (s.node, s.phase, s.model)).collect();
-    samples = measure_fine(&clean, &fine, &again);
-    attempt.funnel.push(("restored", samples.len()));
-    attempt.timings.push(("restore", clock.lap()));
-
-    samples = refit(&clean, &fine, samples, attempt);
+    let mut remeasure = |clean: &Frame<D>| {
+        let again: Vec<_> = samples.iter().map(|s| (s.node, s.phase, s.model)).collect();
+        let samples = measure_fine(clean, &fine, &again)?;
+        attempt.funnel.push(("restored", samples.len()));
+        attempt.timings.push(("restore", clock.lap()));
+        refit(clean, &fine, samples, attempt)
+    };
+    samples = match plain.as_deref() {
+        Some(data) => remeasure(&Frame::load(frame.demodulator, data, width, height)?)?,
+        None => remeasure(frame)?,
+    };
     attempt
         .dropped
         .extend(dropped(&fine, &first_pass, &samples, "refit"));
@@ -1572,6 +1803,7 @@ fn measure_with(
         points,
         code,
         period,
+        defocus,
         carriers,
     })
 }
@@ -1649,22 +1881,22 @@ fn samples_as_nodes(samples: &[Sample]) -> HashMap<GridNode, Node> {
 /// fine nodes, two periods either way, takes most of what is left of the
 /// window's curvature bias out (measured: a third of it remains after two
 /// passes).
-fn refit(
-    image: &Image,
+fn refit<D: LocalDemodulator>(
+    frame: &Frame<D>,
     fine: &Grid,
     mut samples: Vec<Sample>,
     attempt: &mut Attempt,
-) -> Vec<Sample> {
+) -> Result<Vec<Sample>, MeasureError> {
     for stage in REFIT_STAGES {
         let as_nodes = samples_as_nodes(&samples);
         let refitted: Vec<_> = samples
             .par_iter()
             .filter_map(|s| Some((s.node, s.phase, fit_patch(fine, &as_nodes, s.node)?.model)))
             .collect();
-        samples = measure_fine(image, fine, &refitted);
+        samples = measure_fine(frame, fine, &refitted)?;
         attempt.funnel.push((stage, samples.len()));
     }
-    samples
+    Ok(samples)
 }
 
 /// Drops the samples whose phase a window past the board may have pulled:
@@ -1872,20 +2104,22 @@ fn read_code(
 /// the local mean (0.028 to 0.013 px on clean tilted views); out of focus the
 /// mirror would also leave a halo where a square spreads past its edge. The
 /// mirror stays for when the fit cannot be made. Also gives the defocus
-/// found, Gaussian sigma in pixels.
+/// found, Gaussian sigma in pixels, and the misfits its search evaluated;
+/// the search starts from `hint` when there is one.
 fn restore(
     image: &Image,
     maps: &[[Real; 3]],
     code: &CheckerboardCode,
     board: &Checkerboard,
     period: Real,
-) -> (Vec<f32>, Option<Real>) {
+    hint: Option<Real>,
+) -> (Vec<f32>, Option<(Real, usize)>) {
     let fit = CodeModel::new(maps, code, board)
-        .and_then(|model| fit_defocus(image, maps, &model, period).map(|fit| (model, fit)));
+        .and_then(|model| fit_defocus(image, maps, &model, period, hint).map(|fit| (model, fit)));
     match fit {
         Some((model, defocus)) => {
-            let sigma = defocus.sigma;
-            (restore_blurred(image, maps, &model, &defocus), Some(sigma))
+            let found = (defocus.sigma, defocus.misfits);
+            (restore_blurred(image, maps, &model, &defocus), Some(found))
         }
         None => (restore_by_mirroring(image, maps, code, board, period), None),
     }
@@ -2027,47 +2261,71 @@ impl CodeModel {
         // of one along `u` and one along `v`, measured in squares here.
         let sigma_squares = sigma / side;
         let reach = ((3.0 * sigma_squares).ceil() as i64 + 1).min(BLUR_REACH);
-        let spread = |t: Real| blurred_square(t, sigma_squares);
-        let along_u: Vec<Real> = (-reach..=reach)
-            .map(|a| spread(u - (ru + a) as Real))
-            .collect();
-        let along_v: Vec<Real> = (-reach..=reach)
-            .map(|b| spread(v - (rv + b) as Real))
-            .collect();
-        let sign = |k: i64| if k.rem_euclid(2) == 0 { 1.0 } else { -1.0 };
+        let span = (2 * reach + 1) as usize;
+        let along_u = blurred_squares(u - ru as Real, reach, sigma_squares);
+        let along_v = blurred_squares(v - rv as Real, reach, sigma_squares);
         // A blurred ±1 square wave along one axis.
-        let wave = |r: i64, along: &[Real]| {
-            along
-                .iter()
-                .enumerate()
-                .map(|(a, &f)| sign(r + a as i64 - reach) * f)
-                .sum::<Real>()
+        let wave = |r: i64, along: &[Real; SPAN]| {
+            let mut sign = if (r - reach).rem_euclid(2) == 0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let mut sum = 0.0;
+            for &f in &along[..span] {
+                sum += sign * f;
+                sign = -sign;
+            }
+            sum
         };
         let plain = wave(ru, &along_u) * wave(rv, &along_v);
         let mut coded = 0.0;
-        for (b, &fv) in along_v.iter().enumerate() {
-            for (a, &fu) in along_u.iter().enumerate() {
+        for (b, &fv) in along_v[..span].iter().enumerate() {
+            let mut row = 0.0;
+            for (a, &fu) in along_u[..span].iter().enumerate() {
                 let c = self.inverted(ru + a as i64 - reach, rv + b as i64 - reach);
                 if c != 0 {
-                    coded += c as Real * fu * fv;
+                    row += c as Real * fu;
                 }
             }
+            coded += row * fv;
         }
         Some((plain, coded))
     }
 }
 
-/// A one-square-wide box, `0..1`, blurred by a Gaussian of `s` squares, at
-/// `t` squares from its centre.
-fn blurred_square(t: Real, s: Real) -> Real {
+/// Squares a blurred square's spread is held for: [`BLUR_REACH`] either way.
+const SPAN: usize = 2 * BLUR_REACH as usize + 1;
+
+/// One-square-wide boxes centred `−reach..=reach` squares from a pixel that
+/// sits `t` squares off the nearest centre, blurred by a Gaussian of `s`
+/// squares: how much of each the pixel sees. Neighbouring boxes share an
+/// edge, so this takes `2·reach + 2` normal CDFs, not twice as many.
+fn blurred_squares(t: Real, reach: i64, s: Real) -> [Real; SPAN] {
+    let mut out = [0.0; SPAN];
     if s < 1e-3 {
-        return if t.abs() < 0.5 { 1.0 } else { 0.0 };
+        out[reach as usize] = 1.0;
+        return out;
     }
-    normal_cdf((t + 0.5) / s) - normal_cdf((t - 0.5) / s)
+    // Box `k` is centred `k − reach` squares from the nearest centre, so its
+    // near edge is `t + reach − k + ½` squares behind the pixel.
+    let edge = |k: i64| normal_cdf((t + (reach - k) as Real + 0.5) / s);
+    let mut before = edge(0);
+    for (k, f) in out[..(2 * reach + 1) as usize].iter_mut().enumerate() {
+        let after = edge(k as i64 + 1);
+        *f = before - after;
+        before = after;
+    }
+    out
 }
 
 /// The standard normal cumulative distribution.
 fn normal_cdf(x: Real) -> Real {
+    // Past 6 deviations it is within 1e-9 of its limit, closer than `erf`
+    // gets anyway, and most of a sharp board's square edges are that far.
+    if x.abs() > 6.0 {
+        return if x > 0.0 { 1.0 } else { 0.0 };
+    }
     0.5 * (1.0 + erf(x / core::f64::consts::SQRT_2))
 }
 
@@ -2086,6 +2344,8 @@ fn erf(x: Real) -> Real {
 struct Defocus {
     /// Gaussian sigma, pixels.
     sigma: Real,
+    /// Misfits the search for it evaluated.
+    misfits: usize,
     /// Half the white-to-black step, per tile, for [`Defocus::contrast`].
     tiles: Vec<Real>,
     /// Tile side, in pixels.
@@ -2122,38 +2382,62 @@ fn fit_line(s: &LineSums) -> Option<(Real, Real)> {
     (n >= 20.0 && mm > 1e-9 * n).then(|| (mi / mm, ii - mi * mi / mm))
 }
 
+/// One in this many of the sampled pixels takes part in the search for the
+/// sigma; the contrast map at the sigma found uses them all.
+const SEARCH_SHARE: u64 = 3;
+
+/// A pixel the fit samples: where it is, its tile, its phase maps and its
+/// intensity.
+struct Site {
+    pixel: usize,
+    tile: usize,
+    map: [Real; 3],
+    value: Real,
+}
+
 /// Fits the defocus: the sigma at which `mean + h·(plain − 2·coded)`, with a
 /// mean and a contrast `h` free per tile of four periods, best matches the
-/// frame on a sample of its pixels.
+/// frame on a sample of its pixels. The search starts from `hint`, the
+/// previous frame's sigma, when there is one.
 fn fit_defocus(
     image: &Image,
     maps: &[[Real; 3]],
     model: &CodeModel,
     period: Real,
+    hint: Option<Real>,
 ) -> Option<Defocus> {
     let w = image.width;
     let tile = ((4.0 * period).round() as usize).max(8);
     let (columns, rows) = (w.div_ceil(tile), image.height.div_ceil(tile));
     let stride = ((0.25 * period).round() as usize).max(1);
-    let sites: Vec<(usize, usize)> = (0..image.height)
+    let sites: Vec<Site> = (0..image.height)
         .step_by(stride)
         .flat_map(|y| (0..w).step_by(stride).map(move |x| (x, y)))
         .filter(|&(x, y)| maps[y * w + x][0].is_finite())
+        .map(|(x, y)| Site {
+            pixel: y * w + x,
+            tile: (y / tile) * columns + x / tile,
+            map: maps[y * w + x],
+            value: image.data[y * w + x] as Real,
+        })
         .collect();
     if sites.len() < 200 {
         return None;
     }
-    let tally = |sigma: Real| -> Vec<LineSums> {
+    // Picked by a hash of the position rather than every so many, which
+    // could beat against the squares.
+    let all: Vec<&Site> = sites.iter().collect();
+    let search: Vec<&Site> = sites
+        .iter()
+        .filter(|s| scramble(s.pixel as u64).is_multiple_of(SEARCH_SHARE))
+        .collect();
+    let tally = |sites: &[&Site], sigma: Real| -> Vec<LineSums> {
         let mut sums = vec![[0.0; 6]; columns * rows];
         let values: Vec<(usize, Real, Real)> = sites
             .par_iter()
-            .filter_map(|&(x, y)| {
-                let (plain, coded) = model.at(maps[y * w + x], sigma)?;
-                Some((
-                    (y / tile) * columns + x / tile,
-                    plain - 2.0 * coded,
-                    image.data[y * w + x] as Real,
-                ))
+            .filter_map(|site| {
+                let (plain, coded) = model.at(site.map, sigma)?;
+                Some((site.tile, plain - 2.0 * coded, site.value))
             })
             .collect();
         for (tile_index, m, i) in values {
@@ -2168,15 +2452,15 @@ fn fit_defocus(
         sums
     };
     let misfit = |sigma: Real| -> Real {
-        tally(sigma)
+        tally(&search, sigma)
             .iter()
             .filter_map(fit_line)
             .map(|(_, residual)| residual)
             .sum()
     };
 
-    let sigma = minimize_misfit(period, misfit);
-    let fits: Vec<Option<Real>> = tally(sigma)
+    let (sigma, misfits) = minimize_misfit(period, hint, misfit);
+    let fits: Vec<Option<Real>> = tally(&all, sigma)
         .iter()
         .map(|s| fit_line(s).map(|l| l.0))
         .collect();
@@ -2188,6 +2472,7 @@ fn fit_defocus(
     let overall = found.iter().sum::<Real>() / found.len() as Real;
     Some(Defocus {
         sigma,
+        misfits,
         tiles: fits.iter().map(|f| f.unwrap_or(overall)).collect(),
         tile,
         columns,
@@ -2195,32 +2480,140 @@ fn fit_defocus(
     })
 }
 
-/// The sigma of least `misfit`, coarse to fine over 0 to half a period, where
-/// the carrier is all but gone: ten even steps, then five halvings either
-/// side of the best.
-fn minimize_misfit(period: Real, misfit: impl Fn(Real) -> Real) -> Real {
-    let mut best = (0.0, misfit(0.0));
-    let steps = 10;
-    for k in 1..=steps {
-        let sigma = 0.5 * period * k as Real / steps as Real;
-        let m = misfit(sigma);
-        if m < best.1 {
-            best = (sigma, m);
+/// SplitMix64's finalizer: spreads a value's bits over the whole word.
+fn scramble(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Even steps of the search without a hint, over 0 to half a period.
+const SIGMA_STEPS: usize = 7;
+
+/// The sigma of least `misfit` over 0 to half a period, where the carrier is
+/// all but gone, and how many misfits it took. The misfit is smooth in sigma,
+/// so once a minimum is bracketed Brent's method closes in on it in a handful
+/// of steps. The bracket is `hint` and a step either side of it, a sixth or
+/// so of the sigma, when the hint's misfit is the least of the three; else
+/// the least of [`SIGMA_STEPS`] even steps over the whole range and its
+/// neighbours.
+fn minimize_misfit(
+    period: Real,
+    hint: Option<Real>,
+    misfit: impl Fn(Real) -> Real,
+) -> (Real, usize) {
+    let top = 0.5 * period;
+    let calls = std::cell::Cell::new(0);
+    let f = |sigma: Real| {
+        calls.set(calls.get() + 1);
+        misfit(sigma)
+    };
+    let least = |values: &[Real]| {
+        (0..values.len())
+            .min_by(|&a, &b| values[a].total_cmp(&values[b]))
+            .unwrap_or(0)
+    };
+    let around_hint = hint.filter(|h| (0.0..top).contains(h)).and_then(|h| {
+        let step = 0.15 * h + 0.02 * period;
+        let points = [(h - step).max(0.0), h, (h + step).min(top)];
+        let values = points.map(&f);
+        let best = least(&values);
+        // Bracketed when the hint is the least, or when the least is at 0,
+        // which the sigma cannot go below.
+        (best == 1 || points[best] == 0.0).then_some((points, values, best))
+    });
+    let (points, values, best) = around_hint.unwrap_or_else(|| {
+        let grid: Vec<Real> = (0..=SIGMA_STEPS)
+            .map(|k| top * k as Real / SIGMA_STEPS as Real)
+            .collect();
+        let values: Vec<Real> = grid.iter().map(|&s| f(s)).collect();
+        let best = least(&values);
+        let (lo, hi) = (best.saturating_sub(1), (best + 1).min(SIGMA_STEPS));
+        let bracket = [lo, best, hi];
+        (bracket.map(|i| grid[i]), bracket.map(|i| values[i]), 1)
+    });
+    let sigma = brent(points, values, best, 5e-4 * period, f);
+    (sigma, calls.get())
+}
+
+/// Brent's minimization of `f` over `points[0]..points[2]`, to within about
+/// `tolerance`, from those three points already evaluated, `points[best]` the
+/// least.
+fn brent(
+    points: [Real; 3],
+    values: [Real; 3],
+    best: usize,
+    tolerance: Real,
+    f: impl Fn(Real) -> Real,
+) -> Real {
+    /// The golden section's smaller part, `(3 − √5)/2`.
+    const GOLDEN: Real = 0.381_966_011_250_105_1;
+    let (mut a, mut b) = (points[0], points[2]);
+    let (mut x, mut fx) = (points[best], values[best]);
+    // The other two, the next best first, so that the first step can already
+    // be a parabola through all three.
+    let mut rest: Vec<usize> = (0..3).filter(|&i| i != best).collect();
+    rest.sort_by(|&i, &j| values[i].total_cmp(&values[j]));
+    let (mut w, mut fw) = (points[rest[0]], values[rest[0]]);
+    let (mut v, mut fv) = (points[rest[1]], values[rest[1]]);
+    // The last step, and the one before it.
+    let (mut d, mut e): (Real, Real) = (0.0, b - a);
+    for _ in 0..40 {
+        let middle = 0.5 * (a + b);
+        if (x - middle).abs() <= 2.0 * tolerance - 0.5 * (b - a) {
+            break;
         }
-    }
-    let mut step = 0.5 * period / steps as Real;
-    for _ in 0..5 {
-        step *= 0.5;
-        for sigma in [best.0 - step, best.0 + step] {
-            if sigma >= 0.0 {
-                let m = misfit(sigma);
-                if m < best.1 {
-                    best = (sigma, m);
+        let mut parabolic = false;
+        if e.abs() > tolerance && w != x && v != x && v != w {
+            let r = (x - w) * (fx - fv);
+            let q = (x - v) * (fx - fw);
+            let (mut p, mut q) = ((x - v) * q - (x - w) * r, 2.0 * (q - r));
+            if q > 0.0 {
+                p = -p;
+            } else {
+                q = -q;
+            }
+            if p.abs() < (0.5 * q * e).abs() && p > q * (a - x) && p < q * (b - x) {
+                e = d;
+                d = p / q;
+                let u = x + d;
+                if u - a < 2.0 * tolerance || b - u < 2.0 * tolerance {
+                    d = if x < middle { tolerance } else { -tolerance };
                 }
+                parabolic = true;
+            }
+        }
+        if !parabolic {
+            e = if x < middle { b - x } else { a - x };
+            d = GOLDEN * e;
+        }
+        let u = if d.abs() >= tolerance {
+            x + d
+        } else {
+            x + tolerance.copysign(d)
+        };
+        let fu = f(u);
+        if fu <= fx {
+            if u < x {
+                b = x;
+            } else {
+                a = x;
+            }
+            (v, fv, w, fw, x, fx) = (w, fw, x, fx, u, fu);
+        } else {
+            if u < x {
+                a = u;
+            } else {
+                b = u;
+            }
+            if fu <= fw || w == x {
+                (v, fv, w, fw) = (w, fw, u, fu);
+            } else if fu <= fv || v == x || v == w {
+                (v, fv) = (u, fu);
             }
         }
     }
-    best.0
+    x
 }
 
 /// Separable Gaussian blur of `sigma` pixels, normalized at the frame edge.
@@ -2269,4 +2662,57 @@ fn blur_with(w: usize, h: usize, sigma: Real, at: impl Fn(usize) -> Real + Sync)
         out.iter_mut().for_each(|v| *v /= weight);
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A misfit shaped like the fit's: smooth, least at `at`, flattening off
+    /// towards large sigma.
+    fn misfit(at: Real) -> impl Fn(Real) -> Real {
+        move |s: Real| 1.0 - (-((s - at) / (0.6 + 0.4 * at)).powi(2)).exp()
+    }
+
+    #[test]
+    fn search_finds_the_least_misfit() {
+        let period = 11.3;
+        for at in [0.0, 0.3, 1.04, 2.5, 4.9] {
+            let (sigma, calls) = minimize_misfit(period, None, misfit(at));
+            assert!((sigma - at).abs() < 0.02, "{at}: found {sigma}");
+            assert!(calls <= 16, "{at}: {calls} misfits");
+        }
+    }
+
+    #[test]
+    fn hint_saves_misfits_and_survives_being_wrong() {
+        let period = 11.3;
+        for at in [0.3, 1.04, 2.5, 4.9] {
+            let (_, cold) = minimize_misfit(period, None, misfit(at));
+            let (sigma, warm) = minimize_misfit(period, Some(at * 1.05), misfit(at));
+            assert!((sigma - at).abs() < 0.02, "{at}: found {sigma}");
+            assert!(warm < cold, "{at}: {warm} misfits warm, {cold} cold");
+            // A hint far off falls back on the whole range.
+            let (sigma, _) = minimize_misfit(period, Some(at + 2.0), misfit(at));
+            assert!(
+                (sigma - at).abs() < 0.02,
+                "{at}: found {sigma} from a wrong hint"
+            );
+        }
+    }
+
+    #[test]
+    fn blurred_squares_tile_the_line() {
+        // The boxes cover the whole line, so what a pixel sees of them sums
+        // to one, and each matches its box blurred on its own.
+        for (t, s) in [(0.0, 0.05), (0.3, 0.4), (-0.45, 0.9)] {
+            let spread = blurred_squares(t, BLUR_REACH, s);
+            assert!((spread.iter().sum::<Real>() - 1.0).abs() < 1e-3, "{t} {s}");
+            for (k, &f) in spread.iter().enumerate() {
+                let d = t - (k as i64 - BLUR_REACH) as Real;
+                let alone = normal_cdf((d + 0.5) / s) - normal_cdf((d - 0.5) / s);
+                assert!((f - alone).abs() < 1e-12);
+            }
+        }
+    }
 }

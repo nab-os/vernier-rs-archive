@@ -41,6 +41,7 @@ fn bluestein_m(n: usize) -> usize {
 }
 
 use crate::buffer::GpuBuffer;
+use crate::demod::DemodPipelines;
 
 // ---------------------------------------------------------------------------
 // Shared compute pipelines
@@ -67,7 +68,7 @@ struct ComputeContext {
     bluestein_post_pipeline: Arc<ComputePipeline>,
 }
 
-fn build_pipeline(
+pub(crate) fn build_pipeline(
     device: Arc<Device>,
     shader_module: Arc<vulkano::shader::ShaderModule>,
 ) -> Arc<ComputePipeline> {
@@ -97,8 +98,9 @@ pub struct GpuBackend {
     device: Arc<Device>,
     queue: Arc<Queue>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    memory_allocator: Arc<StandardMemoryAllocator>,
+    pub(crate) memory_allocator: Arc<StandardMemoryAllocator>,
     ccx: ComputeContext,
+    pub(crate) demod: DemodPipelines,
 }
 
 impl GpuBackend {
@@ -229,12 +231,14 @@ impl GpuBackend {
             device.clone(),
             bluestein_post_shader::load(device.clone()).unwrap(),
         );
+        let demod = DemodPipelines::new(device.clone());
 
         Self {
             device,
             queue,
             memory_allocator,
             command_buffer_allocator,
+            demod,
             ccx: ComputeContext {
                 descriptor_set_allocator,
                 fft_pipeline,
@@ -277,7 +281,7 @@ impl GpuBackend {
         .unwrap()
     }
 
-    fn make_descriptor_set(
+    pub(crate) fn make_descriptor_set(
         &self,
         pipeline: &Arc<ComputePipeline>,
         writes: impl IntoIterator<Item = WriteDescriptorSet>,
@@ -293,7 +297,7 @@ impl GpuBackend {
     }
 
     /// Submits a one-shot command buffer and blocks until complete.
-    fn submit_one_shot(
+    pub(crate) fn submit_one_shot(
         &self,
         builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) -> Result<()> {
@@ -309,7 +313,7 @@ impl GpuBackend {
             .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
-    fn new_builder(&self) -> Result<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>> {
+    pub(crate) fn new_builder(&self) -> Result<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>> {
         AutoCommandBufferBuilder::primary(
             self.command_buffer_allocator.clone(),
             self.queue.queue_family_index(),
