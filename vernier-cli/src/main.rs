@@ -14,7 +14,7 @@ mod imageio;
 mod pattern;
 mod pgm;
 
-use args::{Command, TopLevel};
+use args::{Command, PatternArgs, TopLevel};
 use backend_select::{BackendKind, dispatch};
 use commands::benchmark::Benchmark;
 use commands::calibrate;
@@ -24,6 +24,7 @@ use commands::render_checkerboard;
 use commands::render_megarena;
 use commands::roundtrip_megarena::RoundtripMegarena;
 use commands::{make_pattern, phone, solve_pnp, track, undistort, webcam};
+use pattern::{Layout, Packing, PatternFile};
 use std::path::PathBuf;
 
 /// Ends the program with the error, if any, the way the camera commands
@@ -203,14 +204,35 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::MakePattern(a) => exit_on_error(make_pattern::run(&make_pattern::MakePatternArgs {
-            square: a.square,
-            pitch: a.pitch,
-            code_size: a.code_size,
-            diamonds: a.diamonds,
-            two_bits: a.two_bits,
-            output: PathBuf::from(&a.output),
-        })),
+        Command::MakePattern(a) => {
+            let (file, output) = match a.pattern {
+                PatternArgs::Checkerboard(c) => (
+                    PatternFile::Checkerboard {
+                        square: c.square,
+                        code_size: c.code_size,
+                        layout: if c.diamonds {
+                            Layout::Diamonds
+                        } else {
+                            Layout::Squares
+                        },
+                        packing: if c.two_bits {
+                            Packing::TwoBits
+                        } else {
+                            Packing::OneBit
+                        },
+                    },
+                    c.output,
+                ),
+                PatternArgs::Megarena(m) => (
+                    PatternFile::Megarena {
+                        pitch: m.pitch,
+                        code_size: m.code_size,
+                    },
+                    m.output,
+                ),
+            };
+            exit_on_error(make_pattern::run(&file, &PathBuf::from(output)))
+        }
         Command::RenderMegarena(a) => {
             let args = render_megarena::RenderMegarenaArgs {
                 width: a.width,

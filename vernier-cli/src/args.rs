@@ -287,27 +287,54 @@ pub struct CheckerboardFiguresArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "make-pattern")]
 pub struct MakePatternArgs {
-    /// coded checkerboard: side of one printed square, in the unit poses
-    /// should come out in (e.g. mm)
-    #[argh(option)]
-    pub square: Option<f64>,
+    #[argh(subcommand)]
+    pub pattern: PatternArgs,
+}
 
-    /// megarena: distance between neighbouring dots, in the unit poses should
-    /// come out in
+/// The pattern types make-pattern can describe.
+#[derive(FromArgs)]
+#[argh(subcommand)]
+pub enum PatternArgs {
+    Checkerboard(CheckerboardPatternArgs),
+    Megarena(MegarenaPatternArgs),
+}
+
+/// A coded checkerboard, as render-checkerboard draws it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "checkerboard")]
+pub struct CheckerboardPatternArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm)
     #[argh(option)]
-    pub pitch: Option<f64>,
+    pub square: f64,
 
     /// LFSR code size the board was rendered with (default: 8)
     #[argh(option, default = "8")]
     pub code_size: u32,
 
-    /// checkerboard only: the board uses the diamond layout
+    /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
 
-    /// checkerboard only: two code bits per axis in each 5x5 supercell
+    /// two code bits per axis in each 5x5 supercell
     #[argh(switch)]
     pub two_bits: bool,
+
+    /// where to write the pattern file (default: pattern.json)
+    #[argh(option, default = "String::from(\"pattern.json\")")]
+    pub output: String,
+}
+
+/// A megarena dot grid, as render-megarena draws it.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "megarena")]
+pub struct MegarenaPatternArgs {
+    /// distance between neighbouring dots, in the unit poses should come out in
+    #[argh(option)]
+    pub pitch: f64,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
 
     /// where to write the pattern file (default: pattern.json)
     #[argh(option, default = "String::from(\"pattern.json\")")]
