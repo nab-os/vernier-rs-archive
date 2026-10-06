@@ -129,7 +129,7 @@ extern "C" {
 // The pointer is valid until the next vernier call on this thread.
 const char *vernier_last_error(void);
 
-// Creates a CPU-backed detector. Returns NULL on allocation failure.
+// Creates a CPU-backed detector.
 //
 // Must be freed with `vernier_detector_free`.
 struct VernierDetector *vernier_detector_new(void);

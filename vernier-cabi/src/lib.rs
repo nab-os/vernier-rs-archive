@@ -91,7 +91,7 @@ pub struct VernierDetector {
     backend: BackendInner,
 }
 
-/// Creates a CPU-backed detector. Returns NULL on allocation failure.
+/// Creates a CPU-backed detector.
 ///
 /// Must be freed with `vernier_detector_free`.
 #[unsafe(no_mangle)]
@@ -154,16 +154,10 @@ impl VernierPose {
     fn not_found() -> Self {
         Self { x: 0.0, y: 0.0, theta: 0.0, found: 0 }
     }
-}
 
-// ─── Shared image setup ───────────────────────────────────────────────────────
-
-fn make_image(pixels: *const f32, width: usize, height: usize) -> Option<GrayImage> {
-    if pixels.is_null() {
-        return None;
+    fn found(pose: &vernier_core::Pose) -> Self {
+        Self { x: pose.x, y: pose.y, theta: pose.theta, found: 1 }
     }
-    let slice = unsafe { std::slice::from_raw_parts(pixels, width * height) };
-    GrayImage::from_vec(width, height, slice.to_vec())
 }
 
 // ─── Periodic (relative / fine) detection ────────────────────────────────────
@@ -193,43 +187,24 @@ pub extern "C" fn vernier_detect_periodic(
     max_frequency: usize,
     smoothing_sigma: f64,
 ) -> VernierPose {
-    clear_last_error();
-
-    let det = match unsafe { det.as_ref() } {
-        Some(d) => d,
-        None => {
-            set_last_error("null detector pointer");
-            return VernierPose::not_found();
-        }
-    };
-
-    let image = match make_image(pixels, width, height) {
-        Some(img) => img,
-        None => {
-            set_last_error("null or mismatched pixels pointer");
-            return VernierPose::not_found();
-        }
-    };
-
-    let detection = match det.backend.analyze_two(
-        &image.to_complex(),
-        image.layout(),
-        sigma as Real,
-        min_frequency,
-        max_frequency,
-        smoothing_sigma as Real,
-    ) {
-        Ok(d) => d,
-        Err(e) => {
-            set_last_error(e);
-            return VernierPose::not_found();
-        }
-    };
-
-    let calib = Calibration::new(period as Real, width, height);
-    let pose = periodic::estimate(&detection.dir1.plane, &detection.dir2.plane, &calib);
-
-    VernierPose { x: pose.x, y: pose.y, theta: pose.theta, found: 1 }
+    guarded(VernierPose::not_found(), || {
+        let det = unsafe { det.as_ref() }.ok_or("null detector pointer")?;
+        let image = to_image(pixels, width, height)?;
+        let detection = det
+            .backend
+            .analyze_two(
+                &image.to_complex(),
+                image.layout(),
+                sigma as Real,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma as Real,
+            )
+            .map_err(|e| e.to_string())?;
+        let calib = Calibration::new(period as Real, width, height);
+        let pose = periodic::estimate(&detection.dir1.plane, &detection.dir2.plane, &calib);
+        Ok(VernierPose::found(&pose))
+    })
 }
 
 // ─── Megarena absolute detection ─────────────────────────────────────────────
@@ -262,51 +237,25 @@ pub extern "C" fn vernier_detect_megarena(
     max_frequency: usize,
     smoothing_sigma: f64,
 ) -> VernierPose {
-    clear_last_error();
-
-    let det = match unsafe { det.as_ref() } {
-        Some(d) => d,
-        None => {
-            set_last_error("null detector pointer");
-            return VernierPose::not_found();
-        }
-    };
-
-    let image = match make_image(pixels, width, height) {
-        Some(img) => img,
-        None => {
-            set_last_error("null or mismatched pixels pointer");
-            return VernierPose::not_found();
-        }
-    };
-
-    let complex = image.to_complex();
-    let layout = image.layout();
-
-    let detection = match det.backend.analyze_two(
-        &complex,
-        layout,
-        sigma as Real,
-        min_frequency,
-        max_frequency,
-        smoothing_sigma as Real,
-    ) {
-        Ok(d) => d,
-        Err(e) => {
-            set_last_error(e);
-            return VernierPose::not_found();
-        }
-    };
-
-    let calib = Calibration::new(physical_period as Real, width, height);
-
-    match absolute::solve_megarena(&detection, image.as_slice(), &calib, code_size) {
-        Ok(pose) => VernierPose { x: pose.x, y: pose.y, theta: pose.theta, found: 1 },
-        Err(e) => {
-            set_last_error(e);
-            VernierPose::not_found()
-        }
-    }
+    guarded(VernierPose::not_found(), || {
+        let det = unsafe { det.as_ref() }.ok_or("null detector pointer")?;
+        let image = to_image(pixels, width, height)?;
+        let detection = det
+            .backend
+            .analyze_two(
+                &image.to_complex(),
+                image.layout(),
+                sigma as Real,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma as Real,
+            )
+            .map_err(|e| e.to_string())?;
+        let calib = Calibration::new(physical_period as Real, width, height);
+        let pose = absolute::solve_megarena(&detection, image.as_slice(), &calib, code_size)
+            .map_err(|e| e.to_string())?;
+        Ok(VernierPose::found(&pose))
+    })
 }
 
 // ─── Camera calibration and PnP ──────────────────────────────────────────────
@@ -520,7 +469,16 @@ fn pixel_slice<'a>(pixels: *const f32, width: usize, height: usize) -> Result<&'
     if width == 0 || height == 0 {
         return Err(format!("empty image {width}×{height}"));
     }
-    Ok(unsafe { std::slice::from_raw_parts(pixels, width * height) })
+    let len = width
+        .checked_mul(height)
+        .filter(|&len| len <= isize::MAX as usize / size_of::<f32>())
+        .ok_or_else(|| format!("image {width}×{height} is too large"))?;
+    Ok(unsafe { std::slice::from_raw_parts(pixels, len) })
+}
+
+fn to_image(pixels: *const f32, width: usize, height: usize) -> Result<GrayImage, String> {
+    let slice = pixel_slice(pixels, width, height)?;
+    GrayImage::from_vec(width, height, slice.to_vec()).ok_or_else(|| "mismatched image size".into())
 }
 
 /// A target as `vernier render-checkerboard` prints it by default: upright
@@ -814,7 +772,7 @@ pub extern "C" fn vernier_image_load(
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_image_free(pixels: *mut f32, width: usize, height: usize) {
     if !pixels.is_null() {
-        let slice = std::ptr::slice_from_raw_parts_mut(pixels, width * height);
+        let slice = std::ptr::slice_from_raw_parts_mut(pixels, width.saturating_mul(height));
         unsafe { drop(Box::from_raw(slice)) };
     }
 }
