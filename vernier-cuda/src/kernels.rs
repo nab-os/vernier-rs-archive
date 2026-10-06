@@ -187,7 +187,8 @@ extern "C" __global__ void gaussian_blur_v(const float* src, float* dst,
 // 9. argmax_local: stage-1 reduction, finds per-group max in upper half-plane.
 //    Each workgroup of 256 threads writes one entry to intermediate:
 //    intermediate[2*gid]   = best_mag
-//    intermediate[2*gid+1] = best_linear_index (as float)
+//    intermediate[2*gid+1] = best_linear_index, its bits stored in a float
+//                            (a float value is only exact up to 2^24)
 // ---------------------------------------------------------------------------
 extern "C" __global__ void argmax_local(const float* src, float* intermediate,
                                          uint width, uint height, uint n) {
@@ -198,7 +199,7 @@ extern "C" __global__ void argmax_local(const float* src, float* intermediate,
     uint global_index = blockIdx.x * 256u + thread_id;
 
     float best_mag = -1.0f;
-    float best_idx = 0.0f;
+    float best_idx = __uint_as_float(0u);
 
     if (global_index < n) {
         uint x = global_index % width;
@@ -210,7 +211,7 @@ extern "C" __global__ void argmax_local(const float* src, float* intermediate,
         bool valid = (sfy > 0) || (sfy == 0 && sfx > 0);
         if (valid) {
             best_mag = src[2*global_index];
-            best_idx = (float)global_index;
+            best_idx = __uint_as_float(global_index);
         }
     }
 
@@ -246,7 +247,7 @@ extern "C" __global__ void argmax_global(const float* intermediate, float* peak,
     uint thread_id = threadIdx.x;
 
     float best_mag = -1.0f;
-    float best_idx = 0.0f;
+    float best_idx = __uint_as_float(0u);
 
     for (uint i = thread_id; i < n_groups; i += 256u) {
         float mag = intermediate[2*i];
@@ -269,7 +270,7 @@ extern "C" __global__ void argmax_global(const float* intermediate, float* peak,
     }
 
     if (thread_id == 0u) {
-        uint linear_index = (uint)s_idx[0];
+        uint linear_index = __float_as_uint(s_idx[0]);
         peak[0] = (float)(linear_index % width);
         peak[1] = (float)(linear_index / width);
     }

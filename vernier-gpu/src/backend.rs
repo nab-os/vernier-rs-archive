@@ -343,12 +343,7 @@ impl ComputeBackend for GpuBackend {
     }
 
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<GpuBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
 
         let host_buffer = Buffer::from_iter(
             self.memory_allocator.clone(),
@@ -1330,12 +1325,7 @@ impl ComputeJob for GpuJob<'_> {
     }
 
     fn upload(&mut self, data: &[Complex32], layout: BufferLayout) -> Result<GpuBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         let n = layout.width * layout.height;
         let staging = Buffer::from_iter(
             self.backend.memory_allocator.clone(),

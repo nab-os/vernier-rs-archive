@@ -38,12 +38,7 @@ impl ComputeBackend for CpuBackend {
     }
 
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<Self::Buffer2D> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         CpuBuffer::from_slice(data, layout).ok_or(VernierError::ShapeMismatch {
             lhs: layout,
             rhs: BufferLayout::packed(layout.width, layout.height),

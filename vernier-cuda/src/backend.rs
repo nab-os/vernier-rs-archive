@@ -129,12 +129,7 @@ impl ComputeBackend for CudaBackend {
     }
 
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<CudaBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         let floats: &[f32] = bytemuck::cast_slice(data);
         let dev_slice = self.ctx.dev.htod_sync_copy(floats)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
@@ -260,12 +255,7 @@ impl ComputeJob for CudaJob<'_> {
     type Buffer2D = CudaBuffer;
 
     fn upload(&mut self, data: &[Complex32], layout: BufferLayout) -> Result<CudaBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         let floats: &[f32] = bytemuck::cast_slice(data);
         let dev_slice = self.ctx.dev.htod_sync_copy(floats)
             .map_err(|e| VernierError::Backend(e.to_string()))?;

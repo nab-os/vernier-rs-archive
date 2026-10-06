@@ -13,6 +13,9 @@ pub enum VernierError {
         rhs: BufferLayout,
     },
 
+    #[error("buffer holds {actual} elements, layout needs {expected}")]
+    LengthMismatch { expected: usize, actual: usize },
+
     #[error("unsupported transform size: {0}x{1}")]
     UnsupportedSize(usize, usize),
 
