@@ -11,6 +11,7 @@ mod args;
 mod backend_select;
 mod commands;
 mod imageio;
+mod pattern;
 mod pgm;
 
 use args::{Command, TopLevel};
@@ -22,7 +23,7 @@ use commands::detect_megarena::DetectMegarena;
 use commands::render_checkerboard;
 use commands::render_megarena;
 use commands::roundtrip_megarena::RoundtripMegarena;
-use commands::{phone, solve_pnp, track, undistort, webcam};
+use commands::{make_pattern, phone, solve_pnp, track, undistort, webcam};
 use std::path::PathBuf;
 
 /// Ends the program with the error, if any, the way the camera commands
@@ -71,7 +72,7 @@ fn main() {
         Command::Calibrate(a) => exit_on_error((|| {
             calibrate::run(&calibrate::CalibrateArgs {
                 images: a.images.iter().map(PathBuf::from).collect(),
-                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                target: pattern::target(a.pattern.as_deref(), a.square, a.code_size, a.diamonds)?,
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
             })
@@ -93,7 +94,7 @@ fn main() {
                 },
                 views: a.views,
                 interval: std::time::Duration::from_secs_f64(a.interval),
-                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                target: pattern::target(a.pattern.as_deref(), a.square, a.code_size, a.diamonds)?,
                 model: calibrate::model(&a.model)?,
                 output: PathBuf::from(&a.output),
                 save_frames: a.save_frames.as_ref().map(PathBuf::from),
@@ -102,7 +103,7 @@ fn main() {
         })()),
         Command::Phone(a) => exit_on_error((|| {
             phone::run(&phone::PhoneArgs {
-                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                target: pattern::target(a.pattern.as_deref(), a.square, a.code_size, a.diamonds)?,
                 camera: PathBuf::from(&a.camera),
                 views: a.views.max(2),
                 model: calibrate::model(&a.model)?,
@@ -115,7 +116,7 @@ fn main() {
             solve_pnp::run(&solve_pnp::SolvePnpArgs {
                 camera: PathBuf::from(&a.camera),
                 images: a.images.iter().map(PathBuf::from).collect(),
-                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                target: pattern::target(a.pattern.as_deref(), a.square, a.code_size, a.diamonds)?,
             })
         })()),
         Command::Track(a) => exit_on_error((|| {
@@ -129,7 +130,7 @@ fn main() {
             };
             track::run(&track::TrackArgs {
                 camera,
-                target: calibrate::target(a.square, a.code_size, a.diamonds)?,
+                target: pattern::target(a.pattern.as_deref(), a.square, a.code_size, a.diamonds)?,
                 device: a.device.clone(),
                 options: webcam::CaptureOptions {
                     format: a.format.clone(),
@@ -202,6 +203,14 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Command::MakePattern(a) => exit_on_error(make_pattern::run(&make_pattern::MakePatternArgs {
+            square: a.square,
+            pitch: a.pitch,
+            code_size: a.code_size,
+            diamonds: a.diamonds,
+            two_bits: a.two_bits,
+            output: PathBuf::from(&a.output),
+        })),
         Command::RenderMegarena(a) => {
             let args = render_megarena::RenderMegarenaArgs {
                 width: a.width,

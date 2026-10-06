@@ -17,6 +17,7 @@ pub enum Command {
     Calibrate(CalibrateArgs),
     CalibrateWebcam(CalibrateWebcamArgs),
     CheckerboardFigures(CheckerboardFiguresArgs),
+    MakePattern(MakePatternArgs),
     DetectMegarena(DetectMegarenaArgs),
     RenderCheckerboard(RenderCheckerboardArgs),
     RenderMegarena(RenderMegarenaArgs),
@@ -281,22 +282,60 @@ pub struct CheckerboardFiguresArgs {
     pub poses: usize,
 }
 
-/// Calibrate a camera from photos of the coded checkerboard (as printed from
-/// render-checkerboard), taken at varied angles and places in the frame.
+/// Write a pattern file describing a printed board, for the --pattern option of
+/// calibrate, calibrate-webcam, phone, solve-pnp and track.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "calibrate")]
-pub struct CalibrateArgs {
-    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+#[argh(subcommand, name = "make-pattern")]
+pub struct MakePatternArgs {
+    /// coded checkerboard: side of one printed square, in the unit poses
+    /// should come out in (e.g. mm)
     #[argh(option)]
-    pub square: f64,
+    pub square: Option<f64>,
+
+    /// megarena: distance between neighbouring dots, in the unit poses should
+    /// come out in
+    #[argh(option)]
+    pub pitch: Option<f64>,
 
     /// LFSR code size the board was rendered with (default: 8)
     #[argh(option, default = "8")]
     pub code_size: u32,
 
+    /// checkerboard only: the board uses the diamond layout
+    #[argh(switch)]
+    pub diamonds: bool,
+
+    /// checkerboard only: two code bits per axis in each 5x5 supercell
+    #[argh(switch)]
+    pub two_bits: bool,
+
+    /// where to write the pattern file (default: pattern.json)
+    #[argh(option, default = "String::from(\"pattern.json\")")]
+    pub output: String,
+}
+
+/// Calibrate a camera from photos of the coded checkerboard (as printed from
+/// render-checkerboard), taken at varied angles and places in the frame.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "calibrate")]
+pub struct CalibrateArgs {
+    /// side of one printed square, in the unit poses should come out in (e.g. mm); or give
+    /// --pattern
+    #[argh(option)]
+    pub square: Option<f64>,
+
+    /// LFSR code size the board was rendered with (default: 8)
+    #[argh(option)]
+    pub code_size: Option<u32>,
+
     /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
+
+    /// pattern file (see make-pattern) giving the board, checkerboard or
+    /// megarena, in place of --square, --code-size and --diamonds
+    #[argh(option)]
+    pub pattern: Option<String>,
 
     /// camera model: pinhole or fisheye (default: pinhole)
     #[argh(option, default = "String::from(\"pinhole\")")]
@@ -316,9 +355,10 @@ pub struct CalibrateArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "phone")]
 pub struct PhoneArgs {
-    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    /// side of one printed square, in the unit poses should come out in (e.g. mm); or give
+    /// --pattern
     #[argh(option)]
-    pub square: f64,
+    pub square: Option<f64>,
 
     /// calibration of the phone's camera: tracked with if the file exists,
     /// otherwise calibrated on the page and written there
@@ -335,12 +375,17 @@ pub struct PhoneArgs {
     pub model: String,
 
     /// LFSR code size the board was rendered with (default: 8)
-    #[argh(option, default = "8")]
-    pub code_size: u32,
+    #[argh(option)]
+    pub code_size: Option<u32>,
 
     /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
+
+    /// pattern file (see make-pattern) giving the board, checkerboard or
+    /// megarena, in place of --square, --code-size and --diamonds
+    #[argh(option)]
+    pub pattern: Option<String>,
 
     /// HTTPS port on the local network (default: 8443)
     #[argh(option, default = "8443")]
@@ -361,9 +406,10 @@ pub struct PhoneArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "calibrate-webcam")]
 pub struct CalibrateWebcamArgs {
-    /// side of one printed square, in the unit poses should come out in (e.g. mm)
+    /// side of one printed square, in the unit poses should come out in (e.g. mm); or give
+    /// --pattern
     #[argh(option)]
-    pub square: f64,
+    pub square: Option<f64>,
 
     /// camera device, or any input ffmpeg can open such as a video file
     /// (default: /dev/video0)
@@ -396,12 +442,17 @@ pub struct CalibrateWebcamArgs {
     pub interval: f64,
 
     /// LFSR code size the board was rendered with (default: 8)
-    #[argh(option, default = "8")]
-    pub code_size: u32,
+    #[argh(option)]
+    pub code_size: Option<u32>,
 
     /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
+
+    /// pattern file (see make-pattern) giving the board, checkerboard or
+    /// megarena, in place of --square, --code-size and --diamonds
+    #[argh(option)]
+    pub pattern: Option<String>,
 
     /// camera model: pinhole or fisheye (default: pinhole)
     #[argh(option, default = "String::from(\"pinhole\")")]
@@ -429,17 +480,23 @@ pub struct SolvePnpArgs {
     #[argh(option)]
     pub camera: String,
 
-    /// side of one printed square, in the unit the pose should come out in
+    /// side of one printed square, in the unit the pose should come out in; or give
+    /// --pattern
     #[argh(option)]
-    pub square: f64,
+    pub square: Option<f64>,
 
     /// LFSR code size the board was rendered with (default: 8)
-    #[argh(option, default = "8")]
-    pub code_size: u32,
+    #[argh(option)]
+    pub code_size: Option<u32>,
 
     /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
+
+    /// pattern file (see make-pattern) giving the board, checkerboard or
+    /// megarena, in place of --square, --code-size and --diamonds
+    #[argh(option)]
+    pub pattern: Option<String>,
 
     /// the photos
     #[argh(positional)]
@@ -477,17 +534,23 @@ pub struct TrackArgs {
     #[argh(option)]
     pub camera: String,
 
-    /// side of one printed square, in the unit the pose should come out in
+    /// side of one printed square, in the unit the pose should come out in; or give
+    /// --pattern
     #[argh(option)]
-    pub square: f64,
+    pub square: Option<f64>,
 
     /// LFSR code size the board was rendered with (default: 8)
-    #[argh(option, default = "8")]
-    pub code_size: u32,
+    #[argh(option)]
+    pub code_size: Option<u32>,
 
     /// the board uses the diamond layout
     #[argh(switch)]
     pub diamonds: bool,
+
+    /// pattern file (see make-pattern) giving the board, checkerboard or
+    /// megarena, in place of --square, --code-size and --diamonds
+    #[argh(option)]
+    pub pattern: Option<String>,
 
     /// camera device, or any input ffmpeg can open such as a video file
     /// (default: /dev/video0)
