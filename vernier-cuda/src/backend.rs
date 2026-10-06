@@ -21,7 +21,13 @@ const CUFFT_INVERSE: i32 = 1;
 
 unsafe extern "C" {
     fn cufftCreate(plan: *mut CufftHandle) -> i32;
-    fn cufftMakePlan2d(plan: CufftHandle, nx: i32, ny: i32, ctype: i32, work_size: *mut usize) -> i32;
+    fn cufftMakePlan2d(
+        plan: CufftHandle,
+        nx: i32,
+        ny: i32,
+        ctype: i32,
+        work_size: *mut usize,
+    ) -> i32;
     fn cufftExecC2C(plan: CufftHandle, idata: *mut f32, odata: *mut f32, direction: i32) -> i32;
     fn cufftDestroy(plan: CufftHandle) -> i32;
 }
@@ -116,7 +122,9 @@ pub struct CudaBackend {
 
 impl CudaBackend {
     pub fn new() -> Result<Self> {
-        Ok(Self { ctx: CudaContext::new()? })
+        Ok(Self {
+            ctx: CudaContext::new()?,
+        })
     }
 }
 
@@ -131,7 +139,10 @@ impl ComputeBackend for CudaBackend {
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<CudaBuffer> {
         layout.check_upload(data.len())?;
         let floats: &[f32] = bytemuck::cast_slice(data);
-        let dev_slice = self.ctx.dev.htod_sync_copy(floats)
+        let dev_slice = self
+            .ctx
+            .dev
+            .htod_sync_copy(floats)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
         Ok(CudaBuffer {
             data: dev_slice,
@@ -141,7 +152,10 @@ impl ComputeBackend for CudaBackend {
     }
 
     fn download(&self, buf: &CudaBuffer) -> Result<Vec<Complex32>> {
-        let floats = self.ctx.dev.dtoh_sync_copy(&buf.data)
+        let floats = self
+            .ctx
+            .dev
+            .dtoh_sync_copy(&buf.data)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
         Ok(bytemuck::cast_vec(floats))
     }
@@ -163,8 +177,13 @@ impl<'a> CudaJob<'a> {
     // -----------------------------------------------------------------------
     // cuFFT helper
     // -----------------------------------------------------------------------
-    fn cufft_2d(&self, data: &mut CudaSlice<f32>, width: usize, height: usize,
-                direction: i32) -> Result<()> {
+    fn cufft_2d(
+        &self,
+        data: &mut CudaSlice<f32>,
+        width: usize,
+        height: usize,
+        direction: i32,
+    ) -> Result<()> {
         let handle = {
             let mut plans = self.ctx.fft_plans.lock().unwrap();
             if let Some(&h) = plans.get(&(height, width)) {
@@ -174,15 +193,16 @@ impl<'a> CudaJob<'a> {
                 unsafe {
                     let r = cufftCreate(&mut h);
                     if r != 0 {
-                        return Err(VernierError::Backend(
-                            format!("cufftCreate failed: {}", r)));
+                        return Err(VernierError::Backend(format!("cufftCreate failed: {}", r)));
                     }
                     let mut ws: usize = 0;
                     let r = cufftMakePlan2d(h, height as i32, width as i32, CUFFT_C2C, &mut ws);
                     if r != 0 {
                         cufftDestroy(h);
-                        return Err(VernierError::Backend(
-                            format!("cufftMakePlan2d failed: {}", r)));
+                        return Err(VernierError::Backend(format!(
+                            "cufftMakePlan2d failed: {}",
+                            r
+                        )));
                     }
                 }
                 plans.insert((height, width), h);
@@ -196,8 +216,7 @@ impl<'a> CudaJob<'a> {
             let ptr: *mut f32 = *data.device_ptr() as *mut f32;
             let r = cufftExecC2C(handle, ptr, ptr, direction);
             if r != 0 {
-                return Err(VernierError::Backend(
-                    format!("cufftExecC2C failed: {}", r)));
+                return Err(VernierError::Backend(format!("cufftExecC2C failed: {}", r)));
             }
         }
         Ok(())
@@ -207,7 +226,9 @@ impl<'a> CudaJob<'a> {
     // Allocation helper: allocate n f32 values, zeroed.
     // -----------------------------------------------------------------------
     fn alloc_f32(&self, n: usize) -> Result<CudaSlice<f32>> {
-        self.ctx.dev.alloc_zeros::<f32>(n)
+        self.ctx
+            .dev
+            .alloc_zeros::<f32>(n)
             .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
@@ -231,20 +252,20 @@ impl<'a> CudaJob<'a> {
         unsafe {
             self.ctx.blur_h_fn.clone().launch(
                 cfg_2d,
-                (&buf.data, &mut temp,
-                 width as u32, height as u32, sigma),
+                (&buf.data, &mut temp, width as u32, height as u32, sigma),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // Vertical pass: temp -> buf.data (allocate another temp for output)
         let mut out = self.alloc_f32(n_floats)?;
         unsafe {
             self.ctx.blur_v_fn.clone().launch(
                 cfg_2d,
-                (&temp, &mut out,
-                 width as u32, height as u32, sigma),
+                (&temp, &mut out, width as u32, height as u32, sigma),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         buf.data = out;
         Ok(())
@@ -257,7 +278,10 @@ impl ComputeJob for CudaJob<'_> {
     fn upload(&mut self, data: &[Complex32], layout: BufferLayout) -> Result<CudaBuffer> {
         layout.check_upload(data.len())?;
         let floats: &[f32] = bytemuck::cast_slice(data);
-        let dev_slice = self.ctx.dev.htod_sync_copy(floats)
+        let dev_slice = self
+            .ctx
+            .dev
+            .htod_sync_copy(floats)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
         Ok(CudaBuffer {
             data: dev_slice,
@@ -268,7 +292,9 @@ impl ComputeJob for CudaJob<'_> {
 
     fn copy_buffer(&mut self, src: &CudaBuffer) -> Result<CudaBuffer> {
         let mut dst = self.alloc_f32(src.n_floats())?;
-        self.ctx.dev.dtod_copy(&src.data, &mut dst)
+        self.ctx
+            .dev
+            .dtod_copy(&src.data, &mut dst)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
         Ok(CudaBuffer {
             data: dst,
@@ -295,15 +321,21 @@ impl ComputeJob for CudaJob<'_> {
             shared_mem_bytes: 0,
         };
         unsafe {
-            self.ctx.scale_fn.clone().launch(
-                cfg,
-                (&mut buf.data, n_floats, scale_factor),
-            )
-        }.map_err(|e| VernierError::Backend(e.to_string()))
+            self.ctx
+                .scale_fn
+                .clone()
+                .launch(cfg, (&mut buf.data, n_floats, scale_factor))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
-    fn bandpass_filter(&mut self, buf: &mut CudaBuffer, cx: usize, cy: usize,
-                       sigma: Real) -> Result<()> {
+    fn bandpass_filter(
+        &mut self,
+        buf: &mut CudaBuffer,
+        cx: usize,
+        cy: usize,
+        sigma: Real,
+    ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
         let gx = ((width + 7) / 8) as u32;
         let gy = ((height + 7) / 8) as u32;
@@ -315,14 +347,26 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.bandpass_fn.clone().launch(
                 cfg,
-                (&mut buf.data, width as u32, height as u32,
-                 cx as u32, cy as u32, sigma as f32),
+                (
+                    &mut buf.data,
+                    width as u32,
+                    height as u32,
+                    cx as u32,
+                    cy as u32,
+                    sigma as f32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
-    fn bandpass_from_peaks(&mut self, buf: &mut CudaBuffer, peaks: &CudaBuffer,
-                           direction: u32, sigma: Real) -> Result<()> {
+    fn bandpass_from_peaks(
+        &mut self,
+        buf: &mut CudaBuffer,
+        peaks: &CudaBuffer,
+        direction: u32,
+        sigma: Real,
+    ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
         let gx = ((width + 7) / 8) as u32;
         let gy = ((height + 7) / 8) as u32;
@@ -334,15 +378,25 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.bandpass_from_peaks_fn.clone().launch(
                 cfg,
-                (&mut buf.data, &peaks.data,
-                 width as u32, height as u32,
-                 direction, sigma as f32),
+                (
+                    &mut buf.data,
+                    &peaks.data,
+                    width as u32,
+                    height as u32,
+                    direction,
+                    sigma as f32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
-    fn filter(&mut self, buf: &mut CudaBuffer, min_frequency: usize,
-              max_frequency: usize) -> Result<()> {
+    fn filter(
+        &mut self,
+        buf: &mut CudaBuffer,
+        min_frequency: usize,
+        max_frequency: usize,
+    ) -> Result<()> {
         let (width, height) = (buf.width, buf.height);
         let gx = ((width + 7) / 8) as u32;
         let gy = ((height + 7) / 8) as u32;
@@ -354,10 +408,16 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.filter_annulus_fn.clone().launch(
                 cfg,
-                (&mut buf.data, width as u32, height as u32,
-                 min_frequency as u32, max_frequency as u32),
+                (
+                    &mut buf.data,
+                    width as u32,
+                    height as u32,
+                    min_frequency as u32,
+                    max_frequency as u32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))
     }
 
     fn gaussian_blur_2d(&mut self, buf: &mut CudaBuffer, sigma: Real) -> Result<()> {
@@ -374,11 +434,12 @@ impl ComputeJob for CudaJob<'_> {
             shared_mem_bytes: 0,
         };
         unsafe {
-            self.ctx.extract_phase_fn.clone().launch(
-                cfg,
-                (&buf.data, &mut out, n),
-            )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+            self.ctx
+                .extract_phase_fn
+                .clone()
+                .launch(cfg, (&buf.data, &mut out, n))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
         Ok(CudaBuffer {
             data: out,
             width: buf.width,
@@ -386,18 +447,29 @@ impl ComputeJob for CudaJob<'_> {
         })
     }
 
-    fn peak_search(&mut self, buffer: &mut CudaBuffer, min_frequency: usize,
-                   max_frequency: usize, smoothing_sigma: Real,
-                   sigma: Real) -> Result<Option<CudaBuffer>> {
+    fn peak_search(
+        &mut self,
+        buffer: &mut CudaBuffer,
+        min_frequency: usize,
+        max_frequency: usize,
+        smoothing_sigma: Real,
+        sigma: Real,
+    ) -> Result<Option<CudaBuffer>> {
         let (width, height) = (buffer.width, buffer.height);
         let n = width * height;
         let n_groups = (n + 255) / 256;
 
         // 1. Copy input into working magnitude buffer
         let mut mag_data = self.alloc_f32(buffer.n_floats())?;
-        self.ctx.dev.dtod_copy(&buffer.data, &mut mag_data)
+        self.ctx
+            .dev
+            .dtod_copy(&buffer.data, &mut mag_data)
             .map_err(|e| VernierError::Backend(e.to_string()))?;
-        let mut magnitude = CudaBuffer { data: mag_data, width, height };
+        let mut magnitude = CudaBuffer {
+            data: mag_data,
+            width,
+            height,
+        };
 
         // 2. Convert to magnitude in-place
         let n_elements = n as u32;
@@ -407,11 +479,12 @@ impl ComputeJob for CudaJob<'_> {
             shared_mem_bytes: 0,
         };
         unsafe {
-            self.ctx.magnitude_fn.clone().launch(
-                cfg_1d,
-                (&mut magnitude.data, n_elements),
-            )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+            self.ctx
+                .magnitude_fn
+                .clone()
+                .launch(cfg_1d, (&mut magnitude.data, n_elements))
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 3. Annulus mask
         self.filter(&mut magnitude, min_frequency, max_frequency)?;
@@ -432,10 +505,16 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.argmax_local_fn.clone().launch(
                 cfg_local,
-                (&magnitude.data, &mut partials1,
-                 width as u32, height as u32, n_elements),
+                (
+                    &magnitude.data,
+                    &mut partials1,
+                    width as u32,
+                    height as u32,
+                    n_elements,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 6. First argmax: global reduction -> peak1 = [cx, cy]
         let mut peak1 = self.alloc_f32(2)?;
@@ -447,10 +526,10 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.argmax_global_fn.clone().launch(
                 cfg_global,
-                (&partials1, &mut peak1,
-                 n_groups as u32, width as u32),
+                (&partials1, &mut peak1, n_groups as u32, width as u32),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 7. Band + angular filter (modifies magnitude in-place)
         let gx = ((width + 7) / 8) as u32;
@@ -463,30 +542,42 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.band_angular_filter_fn.clone().launch(
                 cfg_2d,
-                (&mut magnitude.data, &peak1,
-                 width as u32, height as u32, sigma as f32),
+                (
+                    &mut magnitude.data,
+                    &peak1,
+                    width as u32,
+                    height as u32,
+                    sigma as f32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 8. Second argmax: local reduction
         let mut partials2 = self.alloc_f32(n_groups * 2)?;
         unsafe {
             self.ctx.argmax_local_fn.clone().launch(
                 cfg_local,
-                (&magnitude.data, &mut partials2,
-                 width as u32, height as u32, n_elements),
+                (
+                    &magnitude.data,
+                    &mut partials2,
+                    width as u32,
+                    height as u32,
+                    n_elements,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 9. Second argmax: global reduction -> peak2 = [cx, cy]
         let mut peak2 = self.alloc_f32(2)?;
         unsafe {
             self.ctx.argmax_global_fn.clone().launch(
                 cfg_global,
-                (&partials2, &mut peak2,
-                 n_groups as u32, width as u32),
+                (&partials2, &mut peak2, n_groups as u32, width as u32),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 10. Order peaks -> 8-float result: [cx1, 0, cy1, 0, cx2, 0, cy2, 0]
         let mut result = self.alloc_f32(8)?;
@@ -498,16 +589,24 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.peak_order_fn.clone().launch(
                 cfg_single,
-                (&peak1, &peak2, &mut result,
-                 width as u32, height as u32),
+                (&peak1, &peak2, &mut result, width as u32, height as u32),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
-        Ok(Some(CudaBuffer { data: result, width: 2, height: 2 }))
+        Ok(Some(CudaBuffer {
+            data: result,
+            width: 2,
+            height: 2,
+        }))
     }
 
-    fn spectral_plane_fit_two(&mut self, spectrum: &CudaBuffer, peaks: &CudaBuffer,
-                               sigma: Real) -> Result<CudaBuffer> {
+    fn spectral_plane_fit_two(
+        &mut self,
+        spectrum: &CudaBuffer,
+        peaks: &CudaBuffer,
+        sigma: Real,
+    ) -> Result<CudaBuffer> {
         let (width, height) = (spectrum.width, spectrum.height);
         let n = width * height;
         let n_groups = (n + 63) / 64;
@@ -523,10 +622,18 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.spectral_partial_fn.clone().launch(
                 cfg_partial,
-                (&spectrum.data, &peaks.data, &mut partials,
-                 width as u32, height as u32, n as u32, sigma as f32),
+                (
+                    &spectrum.data,
+                    &peaks.data,
+                    &mut partials,
+                    width as u32,
+                    height as u32,
+                    n as u32,
+                    sigma as f32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
         // 12 floats: [a1,0, b1,0, c1,0, a2,0, b2,0, c2,0]
         let mut result = self.alloc_f32(12)?;
@@ -538,16 +645,28 @@ impl ComputeJob for CudaJob<'_> {
         unsafe {
             self.ctx.spectral_global_fn.clone().launch(
                 cfg_global,
-                (&partials, &mut result,
-                 n_groups as u32, width as f32, height as f32),
+                (
+                    &partials,
+                    &mut result,
+                    n_groups as u32,
+                    width as f32,
+                    height as f32,
+                ),
             )
-        }.map_err(|e| VernierError::Backend(e.to_string()))?;
+        }
+        .map_err(|e| VernierError::Backend(e.to_string()))?;
 
-        Ok(CudaBuffer { data: result, width: 6, height: 1 })
+        Ok(CudaBuffer {
+            data: result,
+            width: 6,
+            height: 1,
+        })
     }
 
     fn submit(self) -> Result<()> {
-        self.ctx.dev.synchronize()
+        self.ctx
+            .dev
+            .synchronize()
             .map_err(|e| VernierError::Backend(e.to_string()))
     }
 }

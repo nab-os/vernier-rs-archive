@@ -231,8 +231,8 @@ impl ComputeJob for CpuJob<'_> {
             for c in 0..width {
                 let mut value = 0.0_f64;
                 for (ki, &kv) in kernel.iter().enumerate() {
-                    let sc = (c as isize + ki as isize - radius as isize)
-                        .rem_euclid(width as isize) as usize;
+                    let sc = (c as isize + ki as isize - radius as isize).rem_euclid(width as isize)
+                        as usize;
                     value += buf.as_slice()[r * width + sc].re as f64 * kv;
                 }
                 tmp[r * width + c] = value;
@@ -339,7 +339,8 @@ impl ComputeJob for CpuJob<'_> {
         };
 
         if smoothing_sigma > 0.0 {
-            self.gaussian_blur_2d(&mut spectrum, smoothing_sigma).unwrap();
+            self.gaussian_blur_2d(&mut spectrum, smoothing_sigma)
+                .unwrap();
         }
 
         let (cx1, cy1) = {
@@ -370,9 +371,13 @@ impl ComputeJob for CpuJob<'_> {
         }
 
         let (cx2, cy2) = {
-            if let Some(a) =
-                Self::halfplane_argmax_angular_excl(&spectrum, width, height, center_angle, half_width)
-            {
+            if let Some(a) = Self::halfplane_argmax_angular_excl(
+                &spectrum,
+                width,
+                height,
+                center_angle,
+                half_width,
+            ) {
                 a
             } else {
                 return Ok(None);
@@ -388,12 +393,28 @@ impl ComputeJob for CpuJob<'_> {
 
         Ok(CpuBuffer::from_slice(
             &[
-                Complex32 { re: d1x as f32, im: 0.0 },
-                Complex32 { re: d1y as f32, im: 0.0 },
-                Complex32 { re: d2x as f32, im: 0.0 },
-                Complex32 { re: d2y as f32, im: 0.0 },
+                Complex32 {
+                    re: d1x as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d1y as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d2x as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d2y as f32,
+                    im: 0.0,
+                },
             ],
-            BufferLayout { width: 2, height: 2, row_stride: 2 },
+            BufferLayout {
+                width: 2,
+                height: 2,
+                row_stride: 2,
+            },
         ))
     }
 
@@ -428,7 +449,11 @@ impl ComputeJob for CpuJob<'_> {
             for fx in 0..width {
                 let sfx = signed(fx, width) as f64;
                 let s = data[fy * width + fx];
-                let sign = if (fx + fy) % 2 == 0 { 1.0_f64 } else { -1.0_f64 };
+                let sign = if (fx + fy) % 2 == 0 {
+                    1.0_f64
+                } else {
+                    -1.0_f64
+                };
                 let s_re = s.re as f64 * sign;
                 let s_im = s.im as f64 * sign;
                 let magnitude_sq = (s.re as f64).powi(2) + (s.im as f64).powi(2);
@@ -459,8 +484,16 @@ impl ComputeJob for CpuJob<'_> {
         let mut result = Vec::with_capacity(6);
         for direction in 0..2 {
             let [c_re, c_im, sfx_numerator, sfy_numerator, denominator] = acc[direction];
-            let a = if denominator != 0.0 { (tau * sfx_numerator / denominator / width as f64) as f32 } else { 0.0 };
-            let b = if denominator != 0.0 { (tau * sfy_numerator / denominator / height as f64) as f32 } else { 0.0 };
+            let a = if denominator != 0.0 {
+                (tau * sfx_numerator / denominator / width as f64) as f32
+            } else {
+                0.0
+            };
+            let b = if denominator != 0.0 {
+                (tau * sfy_numerator / denominator / height as f64) as f32
+            } else {
+                0.0
+            };
             let c = c_im.atan2(c_re) as f32;
             result.push(Complex32::new(a, 0.0));
             result.push(Complex32::new(b, 0.0));
@@ -469,7 +502,11 @@ impl ComputeJob for CpuJob<'_> {
 
         Ok(CpuBuffer::from_slice(
             &result,
-            vernier_core::buffer::BufferLayout { width: 6, height: 1, row_stride: 6 },
+            vernier_core::buffer::BufferLayout {
+                width: 6,
+                height: 1,
+                row_stride: 6,
+            },
         )
         .unwrap())
     }

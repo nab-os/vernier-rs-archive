@@ -2,9 +2,9 @@
 //! `vernier::PeriodicPatternDetector`.
 
 use vernier_core::{ComputeBackend, GrayImage, Pose, Real, Result};
+use vernier_pose::{Calibration, periodic};
 use vernier_spectral::PhasePlane;
 use vernier_spectral::spectrum::{Detection, analyze_two};
-use vernier_pose::{Calibration, periodic};
 
 use crate::{Metadata, PatternDetector, SpectralConfig};
 
@@ -91,7 +91,12 @@ impl<B: ComputeBackend> PatternDetector for PeriodicPatternDetector<B> {
         self.planes = Some((detection.dir1.plane, detection.dir2.plane));
         // The detection's phase maps are the measured unwrapped maps, kept for
         // the (beta, gamma) sign disambiguation in `get_3d_pose`.
-        self.measured = Some((detection.phase1, detection.phase2, image.width(), image.height()));
+        self.measured = Some((
+            detection.phase1,
+            detection.phase2,
+            image.width(),
+            image.height(),
+        ));
         Ok(())
     }
 

@@ -113,7 +113,11 @@ impl BitmapThumbnail {
         }
         let threshold = ((mean_bg + mean_fg) / 2.0) as u8;
         for i in 0..n * n {
-            self.binary[i] = if self.thumbnail[i] > threshold { 255 } else { 0 };
+            self.binary[i] = if self.thumbnail[i] > threshold {
+                255
+            } else {
+                0
+            };
         }
     }
 }

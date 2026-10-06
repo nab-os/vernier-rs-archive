@@ -8,8 +8,8 @@ use vernier_core::buffer::BufferLayout;
 use vernier_core::image::GrayImage;
 use vernier_core::{Complex32, Real};
 use vernier_cpu::CpuBackend;
-use vernier_spectral::spectrum::{Detection, analyze_two};
 use vernier_pose::{Calibration, absolute, periodic};
+use vernier_spectral::spectrum::{Detection, analyze_two};
 
 // ─── Backend enum ─────────────────────────────────────────────────────────────
 
@@ -34,12 +34,26 @@ impl BackendInner {
         match self {
             BackendInner::Cpu(m) => {
                 let b = m.lock().expect("backend mutex poisoned");
-                analyze_two(&*b, data, layout, sigma, min_frequency, max_frequency, smoothing_sigma)
+                analyze_two(
+                    &*b,
+                    data,
+                    layout,
+                    sigma,
+                    min_frequency,
+                    max_frequency,
+                    smoothing_sigma,
+                )
             }
             #[cfg(feature = "cuda")]
-            BackendInner::Cuda(b) => {
-                analyze_two(b, data, layout, sigma, min_frequency, max_frequency, smoothing_sigma)
-            }
+            BackendInner::Cuda(b) => analyze_two(
+                b,
+                data,
+                layout,
+                sigma,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma,
+            ),
         }
     }
 }
@@ -69,7 +83,10 @@ pub struct Pose {
 #[pymethods]
 impl Pose {
     fn __repr__(&self) -> String {
-        format!("Pose(x={:.6}, y={:.6}, theta={:.6})", self.x, self.y, self.theta)
+        format!(
+            "Pose(x={:.6}, y={:.6}, theta={:.6})",
+            self.x, self.y, self.theta
+        )
     }
 }
 
@@ -91,7 +108,9 @@ impl Detector {
     /// Creates a CPU-backed detector.
     #[new]
     pub fn new() -> Self {
-        Self { backend: BackendInner::Cpu(Mutex::new(CpuBackend::new())) }
+        Self {
+            backend: BackendInner::Cpu(Mutex::new(CpuBackend::new())),
+        }
     }
 
     /// Creates a CUDA-backed detector.
@@ -103,7 +122,9 @@ impl Detector {
         #[cfg(feature = "cuda")]
         {
             vernier_cuda::CudaBackend::new()
-                .map(|b| Self { backend: BackendInner::Cuda(b) })
+                .map(|b| Self {
+                    backend: BackendInner::Cuda(b),
+                })
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
         }
         #[cfg(not(feature = "cuda"))]
@@ -173,7 +194,11 @@ impl Detector {
         let calib = Calibration::new(period as Real, width, height);
         let pose = periodic::estimate(&detection.dir1.plane, &detection.dir2.plane, &calib);
 
-        Ok(Pose { x: pose.x, y: pose.y, theta: pose.theta })
+        Ok(Pose {
+            x: pose.x,
+            y: pose.y,
+            theta: pose.theta,
+        })
     }
 
     /// Megarena absolute detection.
@@ -231,7 +256,11 @@ impl Detector {
         let pose = absolute::solve_megarena(&detection, gray.as_slice(), &calib, code_size)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(Pose { x: pose.x, y: pose.y, theta: pose.theta })
+        Ok(Pose {
+            x: pose.x,
+            y: pose.y,
+            theta: pose.theta,
+        })
     }
 }
 

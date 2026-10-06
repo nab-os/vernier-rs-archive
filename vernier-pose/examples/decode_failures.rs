@@ -20,7 +20,10 @@ struct Lcg(u64);
 
 impl Lcg {
     fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // The top 32 bits. `>> 33` kept only 31, which pinned `unit()` to
         // [0, 0.5): every pose landed at negative x, y and theta, and the
         // Box-Muller noise was biased.
@@ -58,16 +61,25 @@ fn run(pattern: &Checkerboard, square: f64, pose: &PatternPose) -> Outcome {
     let period = 3 * pattern.code().len() as i64;
     let image = pattern.render(SIZE, SIZE, pose);
     let backend = CpuBackend::new();
-    let Ok(detection) =
-        detect_checkerboard(&backend, image.as_slice(), BufferLayout::packed(SIZE, SIZE), 4.0, 10, 0, 0.0)
-    else {
+    let Ok(detection) = detect_checkerboard(
+        &backend,
+        image.as_slice(),
+        BufferLayout::packed(SIZE, SIZE),
+        4.0,
+        10,
+        0,
+        0.0,
+    ) else {
         return Outcome::DetectFailed;
     };
     match extract_code_with_layout(&detection, image.as_slice(), ORDER, layout) {
         Err(e) => Outcome::DecodeError(e.to_string()),
         Ok(code) => {
             let (lx, ly) = layout.to_lattice(-pose.x, -pose.y);
-            let want = ((lx / square - 0.5).round() as i64, (ly / square - 0.5).round() as i64);
+            let want = (
+                (lx / square - 0.5).round() as i64,
+                (ly / square - 0.5).round() as i64,
+            );
             let off = (
                 (code.centre_square.0 - want.0).rem_euclid(period),
                 (code.centre_square.1 - want.1).rem_euclid(period),
@@ -148,7 +160,12 @@ fn report(label: &str, pattern: &Checkerboard, square: f64) {
     }
 
     // A few concrete failures to reproduce by hand.
-    for (pose, outcome) in all.iter().zip(&outcomes).filter(|(_, o)| !matches!(o, Outcome::Correct)).take(4) {
+    for (pose, outcome) in all
+        .iter()
+        .zip(&outcomes)
+        .filter(|(_, o)| !matches!(o, Outcome::Correct))
+        .take(4)
+    {
         println!(
             "    e.g. x={:8.1} y={:8.1} theta={:+.3}  -> {outcome:?}",
             pose.x, pose.y, pose.theta
@@ -164,5 +181,9 @@ fn main() {
         .with_code_layout(CodeLayout::Diamonds);
     report("squares", &squares, 8.0);
     report("diamonds", &diamonds, 8.0);
-    report("diamonds, matched range", &diamonds_matched, 8.0 * std::f64::consts::SQRT_2);
+    report(
+        "diamonds, matched range",
+        &diamonds_matched,
+        8.0 * std::f64::consts::SQRT_2,
+    );
 }

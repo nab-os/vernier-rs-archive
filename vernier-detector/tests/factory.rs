@@ -53,7 +53,10 @@ fn periodic_via_factory_detects() {
     // A frame that fails must not leave the previous frame's pose behind.
     let empty = vernier_core::image::GrayImage::from_vec(0, 0, Vec::new()).unwrap();
     assert!(det.compute(&empty).is_err());
-    assert!(!det.pattern_found(-1), "a failed frame kept the previous pose");
+    assert!(
+        !det.pattern_found(-1),
+        "a failed frame kept the previous pose"
+    );
 }
 
 #[test]
@@ -86,7 +89,9 @@ fn bitmap_factory_recognized_but_empty_finds_nothing() {
     // The factory recognizes "BitmapPattern" (surface parity) but a detector
     // with no reference bitmap localizes nothing.
     let size = 256usize;
-    let img = Megarena::new(12.0, 8).unwrap().render(size, size, &PatternPose::IDENTITY);
+    let img = Megarena::new(12.0, 8)
+        .unwrap()
+        .render(size, size, &PatternPose::IDENTITY);
     let mut det = Detector::new_instance("BitmapPattern").unwrap();
     det.set_double("physicalPeriod", 12.0);
     det.set_double("sigma", 4.0);
@@ -106,7 +111,9 @@ fn bitmap_detector_matches_its_own_thumbnail() {
     // A real 2D lattice (megarena) so the thumbnail is well defined.
     let size = 512usize;
     let period = 12.0;
-    let img = Megarena::new(period, 8).unwrap().render(size, size, &PatternPose::IDENTITY);
+    let img = Megarena::new(period, 8)
+        .unwrap()
+        .render(size, size, &PatternPose::IDENTITY);
 
     let mut det = BitmapPatternDetector::new(CpuBackend::new());
     det.set_double("physicalPeriod", period as f64);
@@ -121,9 +128,12 @@ fn bitmap_detector_matches_its_own_thumbnail() {
     let thumb = det.thumbnail().expect("thumbnail should be computed");
     let n = thumb.size;
     assert!(n >= 3);
-    let ref_img =
-        GrayImage::from_vec(n, n, thumb.thumbnail.iter().map(|&v| v as f32 / 255.0).collect())
-            .unwrap();
+    let ref_img = GrayImage::from_vec(
+        n,
+        n,
+        thumb.thumbnail.iter().map(|&v| v as f32 / 255.0).collect(),
+    )
+    .unwrap();
 
     // Use that thumbnail as the reference: detection must now match it at the
     // identity orientation (angle 0) with the best correlation on rotation 0.
@@ -200,7 +210,11 @@ fn periodic_layout_rectangle_grid() {
     layout.set_int("nCols", 3);
     let rects = layout.to_rectangles();
     assert_eq!(rects.len(), 8);
-    assert!(rects.iter().all(|r| (r.width - 5.0).abs() < 1e-9 && (r.height - 5.0).abs() < 1e-9));
+    assert!(
+        rects
+            .iter()
+            .all(|r| (r.width - 5.0).abs() < 1e-9 && (r.height - 5.0).abs() < 1e-9)
+    );
     // No rectangle sits at the origin cell.
     assert!(!rects.iter().any(|r| r.x == 0.0 && r.y == 0.0));
 }
@@ -261,7 +275,10 @@ fn megarena_layout_rectangles_nonempty_and_bounded() {
     for r in &rects {
         let col = (r.x / period).round() as i64;
         let row = (r.y / period).round() as i64;
-        assert!(!(col % 3 == 0 && row % 3 == 0), "corner cell must be removed");
+        assert!(
+            !(col % 3 == 0 && row % 3 == 0),
+            "corner cell must be removed"
+        );
     }
 }
 

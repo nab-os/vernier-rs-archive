@@ -150,7 +150,11 @@ pub fn fit_plane_to_unwrapped(
         [spi, spj, sp],
     );
 
-    PhasePlane { a: a as Real, b: b as Real, c: c as Real }
+    PhasePlane {
+        a: a as Real,
+        b: b as Real,
+        c: c as Real,
+    }
 }
 
 /// Solves a 3x3 linear system by Cramer's rule. The matrix is tiny and

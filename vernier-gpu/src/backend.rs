@@ -1612,6 +1612,9 @@ mod tests {
             .zip(&want)
             .map(|(g, w)| (g.re - w.re).hypot(g.im - w.im))
             .fold(0.0f32, f32::max);
-        assert!(worst / scale < 1e-5, "worst error {worst} against a peak of {scale}");
+        assert!(
+            worst / scale < 1e-5,
+            "worst error {worst} against a peak of {scale}"
+        );
     }
 }

@@ -210,7 +210,10 @@ mod tests {
         }
         for &val in &[1.0, 1e-3, 1e-9, 0.5, 1000.0, 9.0] {
             let d = decode(gds_real8(val));
-            assert!((d - val).abs() <= val.abs() * 1e-12 + 1e-18, "val={val} got={d}");
+            assert!(
+                (d - val).abs() <= val.abs() * 1e-12 + 1e-18,
+                "val={val} got={d}"
+            );
         }
         assert_eq!(gds_real8(0.0), [0u8; 8]);
     }

@@ -1,4 +1,4 @@
-use crate::math::{angle_in_pi_pi, Mat4, Scalar, Vec3};
+use crate::math::{Mat4, Scalar, Vec3, angle_in_pi_pi};
 use crate::scalar::Real;
 use std::fmt;
 

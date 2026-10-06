@@ -229,7 +229,11 @@ mod tests {
         let pose = estimate(&p1, &p2, &calib);
         assert!((pose.x + 2.5).abs() < 1e-4, "x={}", pose.x);
         // A gradient of 0.5 rad/px is a 4π px period: 10 / 4π units per pixel.
-        assert!((pose.pixel_size - 10.0 / (4.0 * PI)).abs() < 1e-9, "{}", pose.pixel_size);
+        assert!(
+            (pose.pixel_size - 10.0 / (4.0 * PI)).abs() < 1e-9,
+            "{}",
+            pose.pixel_size
+        );
     }
 
     #[test]
@@ -279,10 +283,8 @@ mod tests {
         };
 
         let flat = vec![0.0 as Real; w * h];
-        let (beta_pos, _) =
-            compute_phase_gradients(&build(0.001), &flat, w, h, &p1, &p2, 0.5);
-        let (beta_neg, _) =
-            compute_phase_gradients(&build(-0.001), &flat, w, h, &p1, &p2, 0.5);
+        let (beta_pos, _) = compute_phase_gradients(&build(0.001), &flat, w, h, &p1, &p2, 0.5);
+        let (beta_neg, _) = compute_phase_gradients(&build(-0.001), &flat, w, h, &p1, &p2, 0.5);
         assert_eq!(beta_pos, 1, "positive curvature -> +1");
         assert_eq!(beta_neg, -1, "negative curvature -> -1");
     }

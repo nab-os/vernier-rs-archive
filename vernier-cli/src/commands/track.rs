@@ -373,7 +373,9 @@ fn is_local_host(host: &str) -> bool {
         None => host.rsplit_once(':').map_or(host, |(name, _)| name),
     };
     name.eq_ignore_ascii_case("localhost")
-        || name.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        || name
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Reads one line of at most `MAX_LINE` bytes. `None` when the connection
@@ -1393,7 +1395,13 @@ mod tests {
 
     #[test]
     fn local_hosts() {
-        for host in ["localhost:8099", "127.0.0.1:8099", "[::1]:8099", "LOCALHOST", "127.0.0.1"] {
+        for host in [
+            "localhost:8099",
+            "127.0.0.1:8099",
+            "[::1]:8099",
+            "LOCALHOST",
+            "127.0.0.1",
+        ] {
             assert!(is_local_host(host), "{host}");
         }
         for host in ["", "evil.example:8099", "192.168.1.2:8099", "[::1.evil]:80"] {
@@ -1404,12 +1412,22 @@ mod tests {
     #[test]
     fn requests_are_bounded() {
         let parse = |raw: &[u8]| read_request(&mut std::io::BufReader::new(raw));
-        let request = parse(b"GET /frame.jpg?frame=3 HTTP/1.1\r\nHost: localhost:8099\r\n\r\n").unwrap();
-        assert_eq!((request.path.as_str(), request.host.as_str()), ("/frame.jpg", "localhost:8099"));
+        let request =
+            parse(b"GET /frame.jpg?frame=3 HTTP/1.1\r\nHost: localhost:8099\r\n\r\n").unwrap();
+        assert_eq!(
+            (request.path.as_str(), request.host.as_str()),
+            ("/frame.jpg", "localhost:8099")
+        );
 
-        let long_line = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(MAX_LINE as usize));
+        let long_line = format!(
+            "GET / HTTP/1.1\r\nX: {}\r\n\r\n",
+            "a".repeat(MAX_LINE as usize)
+        );
         assert!(parse(long_line.as_bytes()).is_none());
-        let many = format!("GET / HTTP/1.1\r\n{}\r\n", "X: y\r\n".repeat(MAX_HEADERS + 1));
+        let many = format!(
+            "GET / HTTP/1.1\r\n{}\r\n",
+            "X: y\r\n".repeat(MAX_HEADERS + 1)
+        );
         assert!(parse(many.as_bytes()).is_none());
     }
 

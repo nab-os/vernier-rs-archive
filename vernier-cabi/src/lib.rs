@@ -19,8 +19,8 @@ use vernier_core::buffer::BufferLayout;
 use vernier_core::image::GrayImage;
 use vernier_core::{Complex32, Real};
 use vernier_cpu::CpuBackend;
-use vernier_spectral::spectrum::{Detection, analyze_two};
 use vernier_pose::{Calibration, absolute, periodic};
+use vernier_spectral::spectrum::{Detection, analyze_two};
 
 // ─── Thread-local error storage ──────────────────────────────────────────────
 
@@ -45,11 +45,7 @@ fn clear_last_error() {
 /// The pointer is valid until the next vernier call on this thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| {
-        e.borrow()
-            .as_ref()
-            .map_or(std::ptr::null(), |s| s.as_ptr())
-    })
+    LAST_ERROR.with(|e| e.borrow().as_ref().map_or(std::ptr::null(), |s| s.as_ptr()))
 }
 
 // ─── Backend enum ─────────────────────────────────────────────────────────────
@@ -71,13 +67,25 @@ impl BackendInner {
         smoothing_sigma: Real,
     ) -> vernier_core::Result<Detection> {
         match self {
-            BackendInner::Cpu(b) => {
-                analyze_two(b, data, layout, sigma, min_frequency, max_frequency, smoothing_sigma)
-            }
+            BackendInner::Cpu(b) => analyze_two(
+                b,
+                data,
+                layout,
+                sigma,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma,
+            ),
             #[cfg(feature = "cuda")]
-            BackendInner::Cuda(b) => {
-                analyze_two(b, data, layout, sigma, min_frequency, max_frequency, smoothing_sigma)
-            }
+            BackendInner::Cuda(b) => analyze_two(
+                b,
+                data,
+                layout,
+                sigma,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma,
+            ),
         }
     }
 }
@@ -152,11 +160,21 @@ pub struct VernierPose {
 
 impl VernierPose {
     fn not_found() -> Self {
-        Self { x: 0.0, y: 0.0, theta: 0.0, found: 0 }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            theta: 0.0,
+            found: 0,
+        }
     }
 
     fn found(pose: &vernier_core::Pose) -> Self {
-        Self { x: pose.x, y: pose.y, theta: pose.theta, found: 1 }
+        Self {
+            x: pose.x,
+            y: pose.y,
+            theta: pose.theta,
+            found: 1,
+        }
     }
 }
 

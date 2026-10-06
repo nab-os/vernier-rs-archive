@@ -92,10 +92,19 @@ fn nearest_corner(fraction: Real) -> (i64, Real) {
 /// the pattern's own axis-aligned frame. Evaluating a pattern in this frame is
 /// how a single 1D definition produces an arbitrarily-oriented pattern.
 #[inline]
-pub fn into_pattern_frame(x: Real, y: Real, center_x: Real, center_y: Real, theta: Real) -> (Real, Real) {
+pub fn into_pattern_frame(
+    x: Real,
+    y: Real,
+    center_x: Real,
+    center_y: Real,
+    theta: Real,
+) -> (Real, Real) {
     let (delta_x, delta_y) = (x - center_x, y - center_y);
     let (sin_theta, cos_theta) = (-theta).sin_cos();
-    (cos_theta * delta_x - sin_theta * delta_y, sin_theta * delta_x + cos_theta * delta_y)
+    (
+        cos_theta * delta_x - sin_theta * delta_y,
+        sin_theta * delta_x + cos_theta * delta_y,
+    )
 }
 
 #[cfg(test)]
@@ -110,7 +119,13 @@ mod tests {
 
     #[test]
     fn zero_radius_leaves_the_lattice_alone() {
-        for &(x, y) in &[(0.01, 0.01), (0.5, 0.5), (0.99, 0.99), (-0.01, 0.5), (1.5, 0.2)] {
+        for &(x, y) in &[
+            (0.01, 0.01),
+            (0.5, 0.5),
+            (0.99, 0.99),
+            (-0.01, 0.5),
+            (1.5, 0.2),
+        ] {
             assert_eq!(
                 rounded_cell(x, y, 0.0, lone_cell),
                 lone_cell(x.floor() as i64, y.floor() as i64),

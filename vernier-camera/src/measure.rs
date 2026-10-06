@@ -186,7 +186,11 @@ pub enum MeasureError {
     /// The demodulator failed: a device lost, say.
     Backend,
     /// The pixels don't fill a `width × height` frame of at least 2×2.
-    BadFrame { width: usize, height: usize, len: usize },
+    BadFrame {
+        width: usize,
+        height: usize,
+        len: usize,
+    },
 }
 
 impl std::fmt::Display for MeasureError {
@@ -519,7 +523,11 @@ impl<'a, D: LocalDemodulator> Frame<'a, D> {
         // The grid and the windows index width × height pixels and step
         // between neighbours, so anything smaller or shorter would panic.
         if width < 2 || height < 2 || width.checked_mul(height) != Some(data.len()) {
-            return Err(MeasureError::BadFrame { width, height, len: data.len() });
+            return Err(MeasureError::BadFrame {
+                width,
+                height,
+                len: data.len(),
+            });
         }
         Ok(Self {
             image: Image {
@@ -1770,15 +1778,8 @@ fn measure_with<D: LocalDemodulator>(
             (Some(restored), defocus)
         }
         (Ok(Code::Megarena(code)), Printed::Megarena(_)) => {
-            let restored = megarena::restore(
-                image.data,
-                width,
-                height,
-                &maps,
-                code,
-                target.order,
-                period,
-            );
+            let restored =
+                megarena::restore(image.data, width, height, &maps, code, target.order, period);
             (Some(restored), None)
         }
         _ => (None, None),
@@ -2688,7 +2689,10 @@ mod tests {
     fn bad_frames_are_errors_not_panics() {
         let target = Target::new(10.0, 8);
         let bad = |data: &[f32], width, height| {
-            matches!(measure_view(data, width, height, &target), Err(MeasureError::BadFrame { .. }))
+            matches!(
+                measure_view(data, width, height, &target),
+                Err(MeasureError::BadFrame { .. })
+            )
         };
         assert!(bad(&[0.5; 15], 4, 4));
         assert!(bad(&[], 0, 0));

@@ -93,8 +93,7 @@ impl Megarena {
         let pose_y_um = pose.y as f32 * camera.pixel_size;
 
         let half_diag_um =
-            ((width * width + height * height) as f32).sqrt() * 0.5 * camera.pixel_size
-                + period_um;
+            ((width * width + height * height) as f32).sqrt() * 0.5 * camera.pixel_size + period_um;
 
         let col_min = ((pose_x_um - half_diag_um) / period_um).floor() as i64;
         let col_max = ((pose_x_um + half_diag_um) / period_um).ceil() as i64;
