@@ -335,21 +335,30 @@ pub const VERNIER_PACKING_ONE_BIT: u32 = 0;
 /// `VernierTarget::packing`: two code bits per axis in each 5×5 supercell.
 pub const VERNIER_PACKING_TWO_BITS: u32 = 1;
 
-/// The printed board: the side of one square and how its code is laid out.
+/// `VernierTarget::kind`: the coded checkerboard of `vernier render-checkerboard`.
+pub const VERNIER_TARGET_CHECKERBOARD: u32 = 0;
+/// `VernierTarget::kind`: the megarena dot grid of `vernier render-megarena`.
+pub const VERNIER_TARGET_MEGARENA: u32 = 1;
+
+/// The printed board: which pattern, its size and how its code is laid out.
 /// What `vernier render-checkerboard` prints by default is
-/// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT }`,
-/// which `vernier_target_default` returns.
+/// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT,
+/// VERNIER_TARGET_CHECKERBOARD }`, which `vernier_target_default` returns;
+/// `vernier_target_megarena` gives a megarena.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VernierTarget {
-    /// Side of one square, in the unit poses should come out in (e.g. mm).
+    /// Side of one square, or for a megarena the dot pitch, in the unit poses
+    /// should come out in (e.g. mm).
     pub square: f64,
     /// LFSR order (code size) the board was rendered with, 4 to 12.
     pub order: u32,
-    /// `VERNIER_LAYOUT_*`.
+    /// `VERNIER_LAYOUT_*`. Checkerboard only.
     pub layout: u32,
-    /// `VERNIER_PACKING_*`.
+    /// `VERNIER_PACKING_*`. Checkerboard only.
     pub packing: u32,
+    /// `VERNIER_TARGET_*`.
+    pub kind: u32,
 }
 
 /// One measured point: where it is in the frame and where it is on the board.
@@ -443,13 +452,17 @@ fn to_target(t: *const VernierTarget) -> Result<camera::Target, String> {
         VERNIER_PACKING_TWO_BITS => CodePacking::TwoBits,
         other => return Err(format!("unknown code packing {other}")),
     };
-    let target = camera::Target::new(t.square, t.order)
-        .with_layout(layout)
-        .with_packing(packing);
-    // Building the checkerboard is what checks the order.
-    target
-        .checkerboard()
-        .ok_or_else(|| format!("unsupported code size {}; must be 4..=12", t.order))?;
+    let target = match t.kind {
+        VERNIER_TARGET_CHECKERBOARD => camera::Target::new(t.square, t.order)
+            .with_layout(layout)
+            .with_packing(packing),
+        VERNIER_TARGET_MEGARENA => camera::Target::megarena(t.square, t.order),
+        other => return Err(format!("unknown target kind {other}")),
+    };
+    // Building the pattern is what checks the order.
+    if target.checkerboard().is_none() && target.megarena_pattern().is_none() {
+        return Err(format!("unsupported code size {}; must be 4..=12", t.order));
+    }
     Ok(target)
 }
 
@@ -519,11 +532,22 @@ pub extern "C" fn vernier_target_default(square: f64, order: u32) -> VernierTarg
         order,
         layout: VERNIER_LAYOUT_SQUARES,
         packing: VERNIER_PACKING_ONE_BIT,
+        kind: VERNIER_TARGET_CHECKERBOARD,
     }
 }
 
-/// Measures one frame of the coded checkerboard into pixel ↔ board
-/// correspondences.
+/// A megarena as `vernier render-megarena` draws it, of dot pitch `pitch`
+/// (in the unit poses should come out in) and LFSR order `order`.
+#[unsafe(no_mangle)]
+pub extern "C" fn vernier_target_megarena(pitch: f64, order: u32) -> VernierTarget {
+    VernierTarget {
+        kind: VERNIER_TARGET_MEGARENA,
+        ..vernier_target_default(pitch, order)
+    }
+}
+
+/// Measures one frame of the target (coded checkerboard or megarena) into
+/// pixel ↔ board correspondences.
 ///
 /// - `pixels` — row-major f32 grayscale image, `width × height` elements in [0, 1].
 /// - `target` — the printed board.

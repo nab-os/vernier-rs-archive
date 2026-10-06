@@ -19,13 +19,15 @@ pub mod calibrate;
 pub mod camera;
 pub mod geometry;
 pub mod measure;
+pub mod megarena;
 pub mod target;
 
 pub use calibrate::{Calibration, CalibrationError, PnpSolution, ViewFit, calibrate, solve_pnp};
 pub use camera::{Camera, Model};
 pub use geometry::RigidPose;
 pub use measure::{
-    Attempt, Field, MeasureError, Peak, PointMatch, Trace, View, demodulated_field, measure_view,
-    measure_view_after, measure_view_traced,
+    Attempt, Code, CodeError, Field, MeasureError, Peak, PointMatch, Trace, View,
+    demodulated_field, measure_view, measure_view_after, measure_view_traced,
 };
-pub use target::{Scene, Target};
+pub use megarena::{MegarenaCode, MegarenaError};
+pub use target::{PatternKind, Scene, Target};

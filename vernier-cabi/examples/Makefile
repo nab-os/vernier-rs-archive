@@ -6,9 +6,9 @@ LDFLAGS  := -L$(LIB_DIR) -lvernier_cabi -Wl,-rpath,$(abspath $(LIB_DIR)) -lm
 
 FMAC     := ../../resources/fmac-calibration
 
-.PHONY: all clean run bench run-calibrate
+.PHONY: all clean run bench run-calibrate run-megarena
 
-all: detect bench calibrate
+all: detect bench calibrate megarena
 
 detect: detect.c $(INC_DIR)/vernier.h
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
@@ -16,7 +16,10 @@ detect: detect.c $(INC_DIR)/vernier.h
 bench: bench.c $(INC_DIR)/vernier.h
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
 
-calibrate: calibrate.cpp $(INC_DIR)/vernier.h $(INC_DIR)/vernier.hpp
+calibrate: calibrate.cpp pgm.hpp $(INC_DIR)/vernier.h $(INC_DIR)/vernier.hpp
+	$(CXX) $(CXXFLAGS) $< $(LDFLAGS) -o $@
+
+megarena: megarena.cpp pgm.hpp $(INC_DIR)/vernier.h $(INC_DIR)/vernier.hpp
 	$(CXX) $(CXXFLAGS) $< $(LDFLAGS) -o $@
 
 run: detect
@@ -28,5 +31,12 @@ run-calibrate: calibrate
 	for f in $(FMAC)/view_*.png; do magick "$$f" "fmac-pgm/$$(basename "$${f%.png}").pgm"; done
 	./calibrate 5 6 fmac-pgm/view_*.pgm
 
+# Renders synthetic views of a megarena, then calibrates from them; compare
+# with megarena-views/truth.txt.
+run-megarena: megarena
+	cargo run --release -q -p vernier-camera --example megarena_views -- $(abspath megarena-views)
+	./megarena 2 8 megarena-views/view_*.pgm
+	cat megarena-views/truth.txt
+
 clean:
-	rm -rf detect bench calibrate fmac-pgm
+	rm -rf detect bench calibrate megarena fmac-pgm megarena-views

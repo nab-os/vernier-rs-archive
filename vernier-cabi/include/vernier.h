@@ -28,6 +28,12 @@
 // `VernierTarget::packing`: two code bits per axis in each 5×5 supercell.
 #define VERNIER_PACKING_TWO_BITS 1
 
+// `VernierTarget::kind`: the coded checkerboard of `vernier render-checkerboard`.
+#define VERNIER_TARGET_CHECKERBOARD 0
+
+// `VernierTarget::kind`: the megarena dot grid of `vernier render-megarena`.
+#define VERNIER_TARGET_MEGARENA 1
+
 // Opaque handle to a Vernier detector. Create with `vernier_detector_new`
 // (CPU) or `vernier_detector_new_cuda` (GPU); free with
 // `vernier_detector_free`.
@@ -49,19 +55,23 @@ typedef struct VernierPose {
     int32_t found;
 } VernierPose;
 
-// The printed board: the side of one square and how its code is laid out.
+// The printed board: which pattern, its size and how its code is laid out.
 // What `vernier render-checkerboard` prints by default is
-// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT }`,
-// which `vernier_target_default` returns.
+// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT,
+// VERNIER_TARGET_CHECKERBOARD }`, which `vernier_target_default` returns;
+// `vernier_target_megarena` gives a megarena.
 typedef struct VernierTarget {
-    // Side of one square, in the unit poses should come out in (e.g. mm).
+    // Side of one square, or for a megarena the dot pitch, in the unit poses
+    // should come out in (e.g. mm).
     double square;
     // LFSR order (code size) the board was rendered with, 4 to 12.
     uint32_t order;
-    // `VERNIER_LAYOUT_*`.
+    // `VERNIER_LAYOUT_*`. Checkerboard only.
     uint32_t layout;
-    // `VERNIER_PACKING_*`.
+    // `VERNIER_PACKING_*`. Checkerboard only.
     uint32_t packing;
+    // `VERNIER_TARGET_*`.
+    uint32_t kind;
 } VernierTarget;
 
 // One measured point: where it is in the frame and where it is on the board.
@@ -187,8 +197,12 @@ struct VernierPose vernier_detect_megarena(struct VernierDetector *det,
 // squares, one code bit per supercell.
 struct VernierTarget vernier_target_default(double square, uint32_t order);
 
-// Measures one frame of the coded checkerboard into pixel ↔ board
-// correspondences.
+// A megarena as `vernier render-megarena` draws it, of dot pitch `pitch`
+// (in the unit poses should come out in) and LFSR order `order`.
+struct VernierTarget vernier_target_megarena(double pitch, uint32_t order);
+
+// Measures one frame of the target (coded checkerboard or megarena) into
+// pixel ↔ board correspondences.
 //
 // - `pixels` — row-major f32 grayscale image, `width × height` elements in [0, 1].
 // - `target` — the printed board.

@@ -141,10 +141,22 @@ vernier::ViewFit fit = vernier::solve_pnp(cal.camera, views[0]);
 // fit.pose.rvec / fit.pose.tvec: board → camera, as cv::solvePnP returns
 ```
 
+A printed megarena works the same way; only the target changes, and poses come out in the megarena's own frame (origin at its dot (0, 0)):
+
+```cpp
+vernier::Target target = vernier::Target::megarena(2.0, 8);   // 2 mm dot pitch, code size 8
+```
+
 `View::points()` gives the raw pixel ↔ board correspondences if you would rather hand them to OpenCV.  Compile with `-std=c++17 -I vernier-cabi/include -L target/release -lvernier_cabi`.  A complete example calibrates from the fmac set:
 
 ```bash
 make -C vernier-cabi/examples run-calibrate   # needs ImageMagick for PNG → PGM
+```
+
+and `vernier-cabi/examples/megarena.cpp` does the same from a megarena, on synthetic views rendered with their truth:
+
+```bash
+make -C vernier-cabi/examples run-megarena
 ```
 
 ### Python
