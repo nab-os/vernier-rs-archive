@@ -19,18 +19,23 @@ use vernier_spectral::PhasePlane;
 
 use crate::Calibration;
 
-/// Estimates the fine (sub-period) pose from the two direction phase planes.
-/// Translation is correct modulo `calib.period` and orientation is the raw
-/// in-image angle; the integer orders and quadrant come from the absolute path.
+/// Estimates the fine (sub-period) pose from the two direction phase planes,
+/// porting C++ `PeriodicPatternDetector::get2DPose`. Translation is correct
+/// modulo `calib.period` and orientation is the raw in-image angle; the integer
+/// orders and quadrant come from the absolute path, which uses the same sign
+/// convention ([`crate::absolute::solve_megarena`]).
 pub fn estimate(plane1: &PhasePlane, plane2: &PhasePlane, calib: &Calibration) -> Pose {
-    // Sub-period displacements from the center phases (mod one period).
-    let x = (plane1.c / TAU) * calib.period;
-    let y = (plane2.c / TAU) * calib.period;
+    // Sub-period displacements from the center phases (mod one period). The
+    // pattern sits at minus the phase's offset, as in C++.
+    let x = -(plane1.c / TAU) * calib.period;
+    let y = -(plane2.c / TAU) * calib.period;
 
     // Orientation from the first plane's gradients (high-resolution angle).
     let theta = plane1.orientation();
+    // Physical units per pixel: the period over its length in pixels.
+    let pixelic_period = TAU / plane1.a.hypot(plane1.b);
 
-    Pose::new(x, y, theta)
+    Pose::new_2d(x, y, theta, calib.period / pixelic_period)
 }
 
 /// The four ambiguous 3D poses of a periodic pattern under orthographic
@@ -189,7 +194,7 @@ fn sobel_mean(field: &[f64], w: usize, h: usize, horizontal: bool) -> f64 {
 /// and the orientation, leaving the orthogonal component at zero.
 pub fn estimate_single(plane: &PhasePlane, calib: &Calibration) -> Pose {
     let theta = plane.orientation();
-    let disp = (plane.c / TAU) * calib.period;
+    let disp = -(plane.c / TAU) * calib.period;
     Pose::new(disp * theta.cos(), disp * theta.sin(), theta)
 }
 
@@ -216,13 +221,15 @@ mod tests {
     }
 
     #[test]
-    fn half_period_phase_gives_half_period_shift() {
+    fn quarter_period_phase_gives_minus_quarter_period_shift() {
         let calib = Calibration::new(10.0, 32, 32);
-        // c = π is half of 2π -> x = period/2 = 5.0.
-        let p1 = plane(0.5, 0.0, PI);
+        // c = π/2 is a quarter of 2π -> x = -period/4 = -2.5, as C++ get2DPose.
+        let p1 = plane(0.5, 0.0, PI / 2.0);
         let p2 = plane(0.0, 0.5, 0.0);
         let pose = estimate(&p1, &p2, &calib);
-        assert!((pose.x - 5.0).abs() < 1e-4, "x={}", pose.x);
+        assert!((pose.x + 2.5).abs() < 1e-4, "x={}", pose.x);
+        // A gradient of 0.5 rad/px is a 4π px period: 10 / 4π units per pixel.
+        assert!((pose.pixel_size - 10.0 / (4.0 * PI)).abs() < 1e-9, "{}", pose.pixel_size);
     }
 
     #[test]

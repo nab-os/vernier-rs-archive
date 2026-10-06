@@ -63,6 +63,9 @@ impl<B: ComputeBackend> MegarenaPatternDetector<B> {
 
 impl<B: ComputeBackend> PatternDetector for MegarenaPatternDetector<B> {
     fn compute(&mut self, image: &GrayImage) -> Result<()> {
+        // Forget the last frame first, so a failure here isn't reported as
+        // that frame's pose.
+        self.pose = None;
         let detection = run_detection(&self.backend, image, &self.config)?;
         let calib = Calibration::new(self.config.physical_period as Real, image.width(), image.height());
         // A failed absolute solve means "no decodable pattern here": report it

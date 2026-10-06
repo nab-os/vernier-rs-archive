@@ -3,8 +3,9 @@
  *
  * Generates a 512×512 synthetic sinusoidal periodic image (period 40 px) and
  * runs vernier_detect_periodic.  No external image I/O libraries are needed.
- * The recovered sub-period (x, y) phase should be close to zero because the
- * synthetic pattern is centred at the origin.
+ * The pattern's crests sit on multiples of 40 px and the image centre,
+ * 256 = 6·40 + 16, is 16 px past one, so x and y come out as -16 (modulo the
+ * period, with the sign convention of the C++ library).
  *
  * Build
  * -----

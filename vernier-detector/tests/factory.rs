@@ -49,6 +49,11 @@ fn periodic_via_factory_detects() {
     assert_eq!(poses3d.len(), 4);
     assert!(poses3d.iter().all(|p| p.is_3d));
     assert!(det.get_3d_pose(-1).is_3d);
+
+    // A frame that fails must not leave the previous frame's pose behind.
+    let empty = vernier_core::image::GrayImage::from_vec(0, 0, Vec::new()).unwrap();
+    assert!(det.compute(&empty).is_err());
+    assert!(!det.pattern_found(-1), "a failed frame kept the previous pose");
 }
 
 #[test]

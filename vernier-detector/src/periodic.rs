@@ -76,6 +76,11 @@ impl<B: ComputeBackend> PeriodicPatternDetector<B> {
 
 impl<B: ComputeBackend> PatternDetector for PeriodicPatternDetector<B> {
     fn compute(&mut self, image: &GrayImage) -> Result<()> {
+        // Forget the last frame first, so a failure here isn't reported as
+        // that frame's pose.
+        self.pose = None;
+        self.planes = None;
+        self.measured = None;
         let detection = run_detection(&self.backend, image, &self.config)?;
         let calib = self.calibration(image.width(), image.height());
         self.pose = Some(periodic::estimate(
