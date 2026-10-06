@@ -35,6 +35,12 @@ const KEPT_FRAMES: usize = 6;
 
 /// Largest request body taken, a frame's JPEG with room to spare.
 const MAX_BODY: usize = 64 << 20;
+/// Longest request or header line read, and most header lines, so a client
+/// can't grow a request without bound before its body is even reached.
+const MAX_LINE: u64 = 8 << 10;
+const MAX_HEADERS: usize = 100;
+/// How long a read may wait on a silent client before its thread gives up.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long the event stream stays silent before it sends a comment line,
 /// so that a closed page shows up as a failed write.
@@ -187,6 +193,10 @@ pub(crate) struct Shared {
     target: Target,
     /// Routes answered before the server's own, as the phone's upload.
     extra_routes: Option<Routes>,
+    /// Whether the server listens on loopback only, and so should answer
+    /// only requests addressed to this machine by name: a web page whose
+    /// domain was rebound to 127.0.0.1 would otherwise read the camera.
+    loopback: bool,
 }
 
 impl Shared {
@@ -216,6 +226,8 @@ pub(crate) struct Request {
     pub path: String,
     /// What follows the `?`, undecoded.
     query: String,
+    /// The `Host` header, empty without one.
+    host: String,
     pub body: Vec<u8>,
 }
 
@@ -262,6 +274,15 @@ impl Response {
         }
     }
 
+    /// A 403 with a message in plain text.
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: "403 Forbidden",
+            kind: "text/plain; charset=utf-8",
+            body: message.into().into_bytes(),
+        }
+    }
+
     /// A 400 with a message in plain text.
     pub fn bad(message: impl Into<String>) -> Self {
         Self {
@@ -286,11 +307,13 @@ pub(crate) fn listen(
 ) -> Result<Arc<Shared>, String> {
     let listener =
         TcpListener::bind(&address).map_err(|e| format!("could not listen on {address:?}: {e}"))?;
+    let loopback = listener.local_addr().is_ok_and(|a| a.ip().is_loopback());
     let shared = Arc::new(Shared {
         feed: Mutex::new(Feed::default()),
         changed: Condvar::new(),
         target,
         extra_routes: routes,
+        loopback,
     });
     let server = Arc::clone(&shared);
     // A thread per connection: an event stream holds its connection open for
@@ -303,6 +326,7 @@ pub(crate) fn listen(
             std::thread::spawn(move || {
                 // Events and small replies go out at once rather than batched.
                 let _ = stream.set_nodelay(true);
+                let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
                 match tls {
                     Some(config) => {
                         if let Ok(connection) = rustls::ServerConnection::new(config) {
@@ -325,6 +349,10 @@ fn serve<S: Read + Write>(stream: S, shared: &Shared) {
         return;
     };
     let stream = reader.get_mut();
+    if shared.loopback && !is_local_host(&request.host) {
+        let _ = write_response(stream, &Response::forbidden("unexpected Host header"));
+        return;
+    }
     if request.path == "/events" {
         let _ = stream_events(stream, shared);
         return;
@@ -337,11 +365,30 @@ fn serve<S: Read + Write>(stream: S, shared: &Shared) {
     let _ = write_response(stream, &response);
 }
 
-/// Reads the request line, the headers (only `Content-Length` matters) and
-/// the body. `None` when the connection breaks off or the body is too large.
+/// Whether a `Host` header names this machine: `localhost` or a loopback
+/// address, with or without a port.
+fn is_local_host(host: &str) -> bool {
+    let name = match host.strip_prefix('[') {
+        Some(rest) => rest.split(']').next().unwrap_or(""),
+        None => host.rsplit_once(':').map_or(host, |(name, _)| name),
+    };
+    name.eq_ignore_ascii_case("localhost")
+        || name.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Reads one line of at most `MAX_LINE` bytes. `None` when the connection
+/// breaks off or the line is longer.
+fn read_line(reader: &mut impl BufRead) -> Option<String> {
+    let mut line = String::new();
+    reader.by_ref().take(MAX_LINE).read_line(&mut line).ok()?;
+    line.ends_with('\n').then_some(line)
+}
+
+/// Reads the request line, the headers (only `Content-Length` and `Host`
+/// matter) and the body. `None` when the connection breaks off or the request
+/// is too large.
 fn read_request(reader: &mut impl BufRead) -> Option<Request> {
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).ok()?;
+    let request_line = read_line(reader)?;
     let mut words = request_line.split_whitespace();
     let method = words.next().unwrap_or("GET").to_string();
     let target = words.next().unwrap_or("/");
@@ -349,18 +396,24 @@ fn read_request(reader: &mut impl BufRead) -> Option<Request> {
     let (path, query) = (path.to_string(), query.to_string());
 
     let mut length = 0;
+    let mut host = String::new();
+    let mut headers = 0;
     loop {
-        let mut header = String::new();
-        match reader.read_line(&mut header) {
-            Ok(0) | Err(_) => return None,
-            // A blank line ends the headers.
-            Ok(_) if header == "\r\n" || header == "\n" => break,
-            Ok(_) => {
-                if let Some((name, value)) = header.split_once(':')
-                    && name.trim().eq_ignore_ascii_case("content-length")
-                {
-                    length = value.trim().parse().unwrap_or(0);
-                }
+        let header = read_line(reader)?;
+        // A blank line ends the headers.
+        if header == "\r\n" || header == "\n" {
+            break;
+        }
+        headers += 1;
+        if headers > MAX_HEADERS {
+            return None;
+        }
+        if let Some((name, value)) = header.split_once(':') {
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("content-length") {
+                length = value.trim().parse().unwrap_or(0);
+            } else if name.eq_ignore_ascii_case("host") {
+                host = value.trim().to_string();
             }
         }
     }
@@ -373,6 +426,7 @@ fn read_request(reader: &mut impl BufRead) -> Option<Request> {
         method,
         path,
         query,
+        host,
         body,
     })
 }
@@ -1336,6 +1390,28 @@ fn square_edge_colours(snapshot: &Snapshot, field: &Field, attempt: &Attempt) ->
 mod tests {
     use super::*;
     use vernier_camera::{Model, RigidPose, Scene};
+
+    #[test]
+    fn local_hosts() {
+        for host in ["localhost:8099", "127.0.0.1:8099", "[::1]:8099", "LOCALHOST", "127.0.0.1"] {
+            assert!(is_local_host(host), "{host}");
+        }
+        for host in ["", "evil.example:8099", "192.168.1.2:8099", "[::1.evil]:80"] {
+            assert!(!is_local_host(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn requests_are_bounded() {
+        let parse = |raw: &[u8]| read_request(&mut std::io::BufReader::new(raw));
+        let request = parse(b"GET /frame.jpg?frame=3 HTTP/1.1\r\nHost: localhost:8099\r\n\r\n").unwrap();
+        assert_eq!((request.path.as_str(), request.host.as_str()), ("/frame.jpg", "localhost:8099"));
+
+        let long_line = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(MAX_LINE as usize));
+        assert!(parse(long_line.as_bytes()).is_none());
+        let many = format!("GET / HTTP/1.1\r\n{}\r\n", "X: y\r\n".repeat(MAX_HEADERS + 1));
+        assert!(parse(many.as_bytes()).is_none());
+    }
 
     fn camera() -> Camera {
         let mut camera = Camera::ideal(Model::Pinhole, 480, 360, 450.0, 452.0, 243.0, 177.0);
