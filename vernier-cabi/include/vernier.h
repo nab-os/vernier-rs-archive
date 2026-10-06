@@ -264,6 +264,35 @@ int32_t vernier_solve_pnp(const struct VernierCamera *camera,
                           const struct VernierView *view,
                           struct VernierViewFit *out);
 
+// Reads a camera file as `vernier calibrate` writes it (JSON: `model`,
+// `width`, `height`, `fx`, `fy`, `cx`, `cy`, `distortion`).
+//
+// Returns 1 on success, 0 on failure (see `vernier_last_error`).
+int32_t vernier_camera_load(const char *path, struct VernierCamera *out);
+
+// Writes a camera file in the format `vernier calibrate` writes, which
+// `vernier_camera_load` and `vernier solve-pnp` read back. `rms` (pixels) and
+// `views` record how the calibration went; a negative `rms` or zero `views`
+// leaves them out.
+//
+// Returns 1 on success, 0 on failure (see `vernier_last_error`).
+int32_t vernier_camera_save(const char *path,
+                            const struct VernierCamera *camera,
+                            double rms,
+                            size_t views);
+
+// Loads an image file (PNG, JPEG, BMP, TIFF, PGM/PPM) as grayscale,
+// row-major, `width × height` floats in [0, 1]: what the measurement and
+// detection functions take.
+//
+// Returns NULL on failure (see `vernier_last_error`). Free the pixels with
+// `vernier_image_free`.
+float *vernier_image_load(const char *path, size_t *width, size_t *height);
+
+// Frees pixels from `vernier_image_load`, given the size it returned.
+// Passing NULL is a no-op.
+void vernier_image_free(float *pixels, size_t width, size_t height);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

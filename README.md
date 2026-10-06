@@ -131,13 +131,17 @@ The public header is at `vernier-cabi/include/vernier.h`.  Link your project wit
 
 vernier::Target target{5.0, 6};                  // 5 mm squares, code size 6
 std::vector<vernier::View> views;
-for (const auto& img : images)                   // row-major float, [0, 1]
-    views.push_back(vernier::View::measure(img.data(), w, h, target));
+for (const auto& path : paths) {                 // PNG, JPEG, BMP, TIFF or PGM
+    vernier::Image img = vernier::load_image(path);
+    views.push_back(vernier::View::measure(img.pixels.data(), img.width, img.height, target));
+}
 
 vernier::Calibration cal = vernier::calibrate(views, vernier::Model::Pinhole);
 // cal.camera: fx, fy, cx, cy and OpenCV-ordered distortion; cal.rms in px
+cal.camera.save("camera.json", cal.rms, cal.views.size());   // as `vernier calibrate` writes it
 
-vernier::ViewFit fit = vernier::solve_pnp(cal.camera, views[0]);
+vernier::Camera camera = vernier::Camera::load("camera.json");
+vernier::ViewFit fit = vernier::solve_pnp(camera, views[0]);
 // fit.pose.rvec / fit.pose.tvec: board → camera, as cv::solvePnP returns
 ```
 
@@ -147,16 +151,18 @@ A printed megarena works the same way; only the target changes, and poses come o
 vernier::Target target = vernier::Target::megarena(2.0, 8);   // 2 mm dot pitch, code size 8
 ```
 
-`View::points()` gives the raw pixel ↔ board correspondences if you would rather hand them to OpenCV.  Compile with `-std=c++17 -I vernier-cabi/include -L target/release -lvernier_cabi`.  A complete example calibrates from the fmac set:
+`View::points()` gives the raw pixel ↔ board correspondences if you would rather hand them to OpenCV.  Compile with `-std=c++17 -I vernier-cabi/include -L target/release -lvernier_cabi`.
+
+Two complete examples in `vernier-cabi/examples` take either board (`--megarena` for a megarena):
+
+- `calibrate_camera [--megarena] [--fisheye] <size> <code-size> <camera.json> <image>...` calibrates from a list of photos and writes `camera.json`;
+- `solve_pnp [--megarena] <camera.json> <size> <code-size> <image>...` reads a known `camera.json` and prints each photo's pose.
+
+`camera.json` is the same file `vernier calibrate` writes and `vernier solve-pnp` reads, so the CLI and the examples can be mixed.  To try them on the fmac checkerboard set and on synthetic megarena views, each against its truth:
 
 ```bash
-make -C vernier-cabi/examples run-calibrate   # needs ImageMagick for PNG → PGM
-```
-
-and `vernier-cabi/examples/megarena.cpp` does the same from a megarena, on synthetic views rendered with their truth:
-
-```bash
-make -C vernier-cabi/examples run-megarena
+make -C vernier-cabi/examples run-pnp            # compare with resources/fmac-calibration/poses.csv
+make -C vernier-cabi/examples run-pnp-megarena   # compare with megarena-views/truth.txt
 ```
 
 ### Python
