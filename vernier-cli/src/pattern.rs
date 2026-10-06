@@ -16,6 +16,9 @@ use vernier_patterns::checkerboard::{CodeLayout, CodePacking};
 /// Code size boards are rendered with when none is given.
 pub const DEFAULT_CODE_SIZE: u32 = 8;
 
+/// Megarena dot pitch when none is given: 2 mm, a megarena printed on paper.
+pub const DEFAULT_PITCH: f64 = 2.0;
+
 /// A printed board and its parameters, as a pattern file holds them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "pattern", rename_all = "kebab-case", deny_unknown_fields)]
@@ -34,6 +37,7 @@ pub enum PatternFile {
     /// The megarena dot grid of `render-pattern megarena`.
     Megarena {
         /// Distance between neighbouring dots, in the unit poses come out in.
+        #[serde(default = "default_pitch")]
         pitch: f64,
         #[serde(default = "default_code_size")]
         code_size: u32,
@@ -60,6 +64,10 @@ pub enum Packing {
 
 fn default_code_size() -> u32 {
     DEFAULT_CODE_SIZE
+}
+
+fn default_pitch() -> f64 {
+    DEFAULT_PITCH
 }
 
 impl PatternFile {
@@ -179,6 +187,10 @@ mod tests {
         let target = file.target().unwrap();
         assert_eq!(target.kind, PatternKind::Megarena);
         assert_eq!((target.square, target.order), (0.009, 12));
+
+        let file: PatternFile = serde_json::from_str(r#"{ "pattern": "megarena" }"#).unwrap();
+        let target = file.target().unwrap();
+        assert_eq!(target, Target::megarena(DEFAULT_PITCH, DEFAULT_CODE_SIZE));
     }
 
     #[test]

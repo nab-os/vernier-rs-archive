@@ -344,7 +344,8 @@ pub struct CheckerboardPatternArgs {
 #[argh(subcommand, name = "megarena")]
 pub struct MegarenaPatternArgs {
     /// distance between neighbouring dots, in the unit poses should come out in
-    #[argh(option)]
+    /// (default: 2.0, e.g. mm)
+    #[argh(option, default = "crate::pattern::DEFAULT_PITCH")]
     pub pitch: f64,
 
     /// LFSR code size the board was rendered with (default: 8)
