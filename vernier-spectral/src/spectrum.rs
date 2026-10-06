@@ -1,5 +1,5 @@
 use vernier_core::buffer::{Buffer2D, BufferLayout};
-use vernier_core::{ComputeBackend, ComputeJob, Real, Result, VernierError, Complex32};
+use vernier_core::{Complex32, ComputeBackend, ComputeJob, Real, Result, VernierError};
 
 use crate::planefit::{PhasePlane, fit_plane_to_unwrapped};
 use crate::unwrap::quarters_unwrap_phase;
@@ -60,7 +60,11 @@ pub fn analyze_direction<B: ComputeBackend>(
         c: planes_data[2].re as Real,
     };
     let peak = plane.peak_location(width, height);
-    Ok(DirectionResult { plane, peak, peak_bin: (peak_x, peak_y) })
+    Ok(DirectionResult {
+        plane,
+        peak,
+        peak_bin: (peak_x, peak_y),
+    })
 }
 
 /// Crop factor of the phase-plane regression, matching C++
@@ -104,7 +108,13 @@ pub fn analyze_two<B: ComputeBackend>(
         let mut buffer = job.upload(data, layout)?;
         job.fft2d(&mut buffer)?;
         let peaks_buffer = job
-            .peak_search(&mut buffer, min_frequency, max_frequency, smoothing_sigma, sigma)?
+            .peak_search(
+                &mut buffer,
+                min_frequency,
+                max_frequency,
+                smoothing_sigma,
+                sigma,
+            )?
             .ok_or_else(|| VernierError::Backend("no carrier peaks found in spectrum".into()))?;
         let mut spec1 = job.copy_buffer(&buffer)?;
         let mut spec2 = job.copy_buffer(&buffer)?;
@@ -134,5 +144,12 @@ pub fn analyze_two<B: ComputeBackend>(
         peak_bin: (peak_x2, peak_y2),
     };
 
-    Ok(Detection { dir1, dir2, phase1, phase2, width, height })
+    Ok(Detection {
+        dir1,
+        dir2,
+        phase1,
+        phase2,
+        width,
+        height,
+    })
 }

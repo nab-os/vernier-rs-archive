@@ -94,7 +94,10 @@ fn periodic_recovers_subpixel_step_under_noise() {
         .map(|&seed| periodic_step_error(512, 0.37, Some((0.02, seed))))
         .sum::<Real>()
         / seeds.len() as Real;
-    assert!(mean_err < 8e-4, "mean step error {mean_err} px exceeds 8e-4 px");
+    assert!(
+        mean_err < 8e-4,
+        "mean step error {mean_err} px exceeds 8e-4 px"
+    );
 }
 
 #[test]
@@ -143,7 +146,16 @@ fn megarena_absolute_step_and_theta() {
     let err = (measured - step).abs();
     assert!(err < 5e-3, "absolute step error {err} px exceeds 5e-3 px");
     // Same absolute cell: y must not jump by a period.
-    assert!((pose1.y - pose0.y).abs() < 0.5, "y jumped: {} vs {}", pose0.y, pose1.y);
+    assert!(
+        (pose1.y - pose0.y).abs() < 0.5,
+        "y jumped: {} vs {}",
+        pose0.y,
+        pose1.y
+    );
     // Rendered theta = 0: the solved theta must be ~0 (not a stray k·π/2).
-    assert!(pose0.theta.abs() < 1e-3, "theta {} not quadrant-resolved", pose0.theta);
+    assert!(
+        pose0.theta.abs() < 1e-3,
+        "theta {} not quadrant-resolved",
+        pose0.theta
+    );
 }

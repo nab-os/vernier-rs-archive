@@ -17,7 +17,7 @@ pub struct RenderMegarenaArgs {
 
 pub fn run(args: &RenderMegarenaArgs) -> Result<(), String> {
     let pattern = Megarena::new(args.period_px, args.code_size)
-        .ok_or_else(|| format!("unsupported code size {}; must be 3..=16", args.code_size))?;
+        .ok_or_else(|| format!("unsupported code size {}; must be 4..=12", args.code_size))?;
 
     let pose = PatternPose::new(args.x, args.y, args.theta);
     let image = pattern.render(args.width, args.height, &pose);

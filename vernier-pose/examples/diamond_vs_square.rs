@@ -42,7 +42,10 @@ impl Lcg {
         Lcg(z ^ (z >> 31))
     }
     fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 32) as u32
     }
     fn unit(&mut self) -> f64 {
@@ -221,13 +224,17 @@ fn degrade(image: &mut [f32], variant: Variant, level: f64, seed: u64) {
         }),
         Variant::Vignette => {
             let rmax2 = 2.0 * half * half;
-            gain_map(image, &|x, y| (1.0 - level * (x * x + y * y) / rmax2).max(0.0))
+            gain_map(image, &|x, y| {
+                (1.0 - level * (x * x + y * y) / rmax2).max(0.0)
+            })
         }
         Variant::Shading => {
             // Blotches about 256 px across, a phase offset so the centre is not
             // special.
             let k = std::f64::consts::TAU / 256.0;
-            gain_map(image, &|x, y| 1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin())
+            gain_map(image, &|x, y| {
+                1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin()
+            })
         }
         Variant::Defocus => gaussian_blur(image, level),
         Variant::Motion0 => motion_blur(image, level, 0.0),
@@ -314,7 +321,11 @@ fn threads() -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&n| n > 0)
-        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4))
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        })
 }
 
 fn render_all(pattern: &Checkerboard, poses: &[PatternPose]) -> Vec<Vec<f32>> {
@@ -331,7 +342,10 @@ fn render_all(pattern: &Checkerboard, poses: &[PatternPose]) -> Vec<Vec<f32>> {
                 })
             })
             .collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
     })
 }
 
@@ -364,7 +378,8 @@ fn evaluate(
                 scope.spawn(move || {
                     let backend = CpuBackend::new();
                     let buffer = BufferLayout::packed(SIZE, SIZE);
-                    let (mut correct, mut detected, mut errs, mut bits, mut wrong) = (0, 0, Vec::new(), 0.0, 0);
+                    let (mut correct, mut detected, mut errs, mut bits, mut wrong) =
+                        (0, 0, Vec::new(), 0.0, 0);
                     for (offset, pose) in slice.iter().enumerate() {
                         let index = c * chunk + offset;
                         let mut image = renders[index].clone();
@@ -387,7 +402,8 @@ fn evaluate(
                         // Correct means within half a square of the truth. Comparing
                         // square indices instead miscounts poses that sit on a square
                         // boundary, where a sub-pixel difference flips the rounding.
-                        let (ex, ey) = pattern.wrap_offset(recovered.x + pose.x, recovered.y + pose.y);
+                        let (ex, ey) =
+                            pattern.wrap_offset(recovered.x + pose.x, recovered.y + pose.y);
                         let (ex, ey) = (ex.abs(), ey.abs());
                         if ex < 0.5 * square && ey < 0.5 * square {
                             correct += 1;
@@ -401,42 +417,63 @@ fn evaluate(
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().expect("worker panicked")).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("worker panicked"))
+            .collect()
     });
 
     let correct: usize = per_thread.iter().map(|r| r.0).sum();
     let wrong: usize = per_thread.iter().map(|r| r.4).sum();
     let detected: usize = per_thread.iter().map(|r| r.1).sum();
-    let mut errs: Vec<f64> = per_thread.iter().flat_map(|r| r.2.iter().copied()).collect();
+    let mut errs: Vec<f64> = per_thread
+        .iter()
+        .flat_map(|r| r.2.iter().copied())
+        .collect();
     errs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let bits: f64 = per_thread.iter().map(|r| r.3).sum();
     Stats {
         correct,
         wrong,
         detected,
-        median_err: if errs.is_empty() { f64::NAN } else { errs[errs.len() / 2] },
-        mean_bits: if correct > 0 { bits / correct as f64 } else { 0.0 },
+        median_err: if errs.is_empty() {
+            f64::NAN
+        } else {
+            errs[errs.len() / 2]
+        },
+        mean_bits: if correct > 0 {
+            bits / correct as f64
+        } else {
+            0.0
+        },
     }
 }
 
 fn main() {
-    let jitter: f64 = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(5.0);
+    let jitter: f64 = std::env::args()
+        .nth(1)
+        .and_then(|a| a.parse().ok())
+        .unwrap_or(5.0);
     let offs = offsets(jitter);
 
     eprintln!("jitter +/-{jitter} deg: rendering clean images...");
-    let subjects: Vec<(Design, Checkerboard, Vec<PatternPose>, Vec<Vec<f32>>)> =
-        [SQUARE, DIAMOND, DIAMOND_MATCHED]
-            .into_iter()
-            .map(|design| {
-                let pattern =
-                    Checkerboard::new(design.square, ORDER).unwrap().with_code_layout(design.layout);
-                let poses = poses_for(&design, &offs);
-                let renders = render_all(&pattern, &poses);
-                (design, pattern, poses, renders)
-            })
-            .collect();
+    // Each design with its board, the poses it was rendered at and the images.
+    type Subject = (Design, Checkerboard, Vec<PatternPose>, Vec<Vec<f32>>);
+    let subjects: Vec<Subject> = [SQUARE, DIAMOND, DIAMOND_MATCHED]
+        .into_iter()
+        .map(|design| {
+            let pattern = Checkerboard::new(design.square, ORDER)
+                .unwrap()
+                .with_code_layout(design.layout);
+            let poses = poses_for(&design, &offs);
+            let renders = render_all(&pattern, &poses);
+            (design, pattern, poses, renders)
+        })
+        .collect();
 
-    println!("jitter_deg,family,variant,level,design,correct,wrong,detected,total,median_err_px,mean_check_bits");
+    println!(
+        "jitter_deg,family,variant,level,design,correct,wrong,detected,total,median_err_px,mean_check_bits"
+    );
     let emit = |family: &str, variant: &str, level: f64, name: &str, s: &Stats| {
         println!(
             "{jitter},{family},{variant},{level},{name},{},{},{},{POSES},{:.4},{:.2}",
@@ -449,7 +486,13 @@ fn main() {
     for variant in ALL {
         for level in variant.levels() {
             for (design, pattern, poses, renders) in &subjects {
-                let s = evaluate(pattern, design.square, poses, renders, Some((variant, level)));
+                let s = evaluate(
+                    pattern,
+                    design.square,
+                    poses,
+                    renders,
+                    Some((variant, level)),
+                );
                 emit(variant.family(), variant.name(), level, design.name, &s);
             }
             done += 1;
@@ -461,7 +504,9 @@ fn main() {
     // same tile size, which is where carrier direction vs pixel grid matters.
     for side in [8.0, 6.0, 5.0, 4.0, 3.5, 3.0, 2.5, 2.0, 1.75, 1.5] {
         for design in [SQUARE, DIAMOND] {
-            let pattern = Checkerboard::new(side, ORDER).unwrap().with_code_layout(design.layout);
+            let pattern = Checkerboard::new(side, ORDER)
+                .unwrap()
+                .with_code_layout(design.layout);
             let poses = poses_for(&design, &offs);
             let renders = render_all(&pattern, &poses);
             let s = evaluate(&pattern, side, &poses, &renders, None);

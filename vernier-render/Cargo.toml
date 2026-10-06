@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 vernier-core = { path = "../vernier-core" }
 vulkano = "0.35.2"
-vulkano-macros = "0.35.0"
 vulkano-shaders = "0.35.0"
 smallvec = "1.8"
 

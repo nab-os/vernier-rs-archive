@@ -175,7 +175,7 @@ impl std::error::Error for CodeError {}
 /// Why a frame gave no view.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MeasureError {
-    /// The target's LFSR order has no checkerboard pattern.
+    /// The target's LFSR order has no pattern (checkerboard or megarena).
     UnsupportedOrder(u32),
     /// No pair of crossed carriers in the spectrum.
     NoCarrier,
@@ -185,6 +185,12 @@ pub enum MeasureError {
     TooFewPoints(usize),
     /// The demodulator failed: a device lost, say.
     Backend,
+    /// The pixels don't fill a `width × height` frame of at least 2×2.
+    BadFrame {
+        width: usize,
+        height: usize,
+        len: usize,
+    },
 }
 
 impl std::fmt::Display for MeasureError {
@@ -195,6 +201,9 @@ impl std::fmt::Display for MeasureError {
             Self::NoBoard => write!(f, "no region of the image holds the board cleanly"),
             Self::TooFewPoints(n) => write!(f, "only {n} points measured"),
             Self::Backend => write!(f, "the demodulator failed"),
+            Self::BadFrame { width, height, len } => {
+                write!(f, "{len} pixels don't make a {width}×{height} frame")
+            }
         }
     }
 }
@@ -511,6 +520,15 @@ impl<'a, D: LocalDemodulator> Frame<'a, D> {
         width: usize,
         height: usize,
     ) -> Result<Self, MeasureError> {
+        // The grid and the windows index width × height pixels and step
+        // between neighbours, so anything smaller or shorter would panic.
+        if width < 2 || height < 2 || width.checked_mul(height) != Some(data.len()) {
+            return Err(MeasureError::BadFrame {
+                width,
+                height,
+                len: data.len(),
+            });
+        }
         Ok(Self {
             image: Image {
                 data,
@@ -1656,11 +1674,17 @@ fn measure_on<D: LocalDemodulator>(
         trace.attempts.push(attempt);
         view
     };
+    // A view from the previous carriers that doesn't read the code is still
+    // kept, in case the search finds nothing better.
+    let mut outcome: Result<View, MeasureError> = Err(MeasureError::NoCarrier);
     if let Some(previous) = previous {
         let view = follow(previous.carriers, true, &mut trace);
-        if matches!(&view, Ok(v) if v.is_absolute()) {
+        if view.is_ok() {
             trace.chosen = Some(0);
-            return (view, trace);
+            if view.as_ref().is_ok_and(View::is_absolute) {
+                return (view, trace);
+            }
+            outcome = view;
         }
     }
 
@@ -1670,16 +1694,16 @@ fn measure_on<D: LocalDemodulator>(
     trace.search_ms = clock.lap();
     trace.peaks = search.peaks;
     trace.spectrum = search.spectrum;
-    let mut outcome: Result<View, MeasureError> = Err(MeasureError::NoCarrier);
     for (index, carriers) in search.pairs.into_iter().enumerate() {
         let view = follow(carriers, false, &mut trace);
         if matches!(&view, Ok(v) if v.is_absolute()) {
             trace.chosen = Some(trace.attempts.len() - 1);
             return (view, trace);
         }
-        // Errors report the strongest candidate's.
+        // Errors report the strongest candidate's, unless a view was found.
         let better = match (&outcome, &view) {
-            (_, Err(_)) => index == 0,
+            (Err(_), Err(_)) => index == 0,
+            (Ok(_), Err(_)) => false,
             (Ok(best), Ok(v)) => v.points.len() > best.points.len(),
             (Err(_), Ok(_)) => true,
         };
@@ -1754,15 +1778,8 @@ fn measure_with<D: LocalDemodulator>(
             (Some(restored), defocus)
         }
         (Ok(Code::Megarena(code)), Printed::Megarena(_)) => {
-            let restored = megarena::restore(
-                image.data,
-                width,
-                height,
-                &maps,
-                code,
-                target.order,
-                period,
-            );
+            let restored =
+                megarena::restore(image.data, width, height, &maps, code, target.order, period);
             (Some(restored), None)
         }
         _ => (None, None),
@@ -2667,6 +2684,20 @@ fn blur_with(w: usize, h: usize, sigma: Real, at: impl Fn(usize) -> Real + Sync)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bad_frames_are_errors_not_panics() {
+        let target = Target::new(10.0, 8);
+        let bad = |data: &[f32], width, height| {
+            matches!(
+                measure_view(data, width, height, &target),
+                Err(MeasureError::BadFrame { .. })
+            )
+        };
+        assert!(bad(&[0.5; 15], 4, 4));
+        assert!(bad(&[], 0, 0));
+        assert!(bad(&[0.5; 8], 8, 1));
+    }
 
     /// A misfit shaped like the fit's: smooth, least at `at`, flattening off
     /// towards large sigma.

@@ -8,8 +8,8 @@
 //! recover which orientation is in view and the integer period shifts — giving
 //! an absolute pose.
 
-use vernier_core::{ComputeBackend, GrayImage, Pose, Real, Result};
 use vernier_core::scalar::consts::TAU;
+use vernier_core::{ComputeBackend, GrayImage, Pose, Real, Result};
 use vernier_spectral::PhasePlane;
 
 use crate::periodic::run_detection;
@@ -79,7 +79,11 @@ impl<B: ComputeBackend> BitmapPatternDetector<B> {
         let (mut pixels, mut w, mut h) = (base, bitmap.width(), bitmap.height());
         let mut rots = Vec::with_capacity(4);
         for _ in 0..4 {
-            rots.push(RefBitmap { pixels: pixels.clone(), width: w, height: h });
+            rots.push(RefBitmap {
+                pixels: pixels.clone(),
+                width: w,
+                height: h,
+            });
             let (rp, rw, rh) = rotate90_cw(&pixels, w, h);
             pixels = rp;
             w = rw;
@@ -109,7 +113,12 @@ impl<B: ComputeBackend> BitmapPatternDetector<B> {
     }
 
     /// Runs the template match + orientation resolution (C++ `computeAbsolutePose`).
-    fn compute_absolute_pose(&mut self, thumb: &BitmapThumbnail, mut p1: PhasePlane, mut p2: PhasePlane) {
+    fn compute_absolute_pose(
+        &mut self,
+        thumb: &BitmapThumbnail,
+        mut p1: PhasePlane,
+        mut p2: PhasePlane,
+    ) {
         let n = thumb.size;
         let mut best = f64::NEG_INFINITY;
         self.bitmap_index = -1;
@@ -124,8 +133,8 @@ impl<B: ComputeBackend> BitmapPatternDetector<B> {
                 best = m.max_val;
                 self.bitmap_index = k as i32;
                 self.max_angle = (k % 4) as i32 * 90;
-                self.period_shift1 = -((m.max_x as i64 - (m.width / 2) as i64)) / 2;
-                self.period_shift2 = -((m.max_y as i64 - (m.height / 2) as i64)) / 2;
+                self.period_shift1 = -(m.max_x as i64 - (m.width / 2) as i64) / 2;
+                self.period_shift2 = -(m.max_y as i64 - (m.height / 2) as i64) / 2;
             }
         }
 
@@ -165,8 +174,8 @@ impl<B: ComputeBackend> BitmapPatternDetector<B> {
     /// mirroring `PeriodicPatternDetector::get2DPose` with the shifts applied.
     fn assemble_pose(&self, p1: &PhasePlane, p2: &PhasePlane) -> Pose {
         let period = self.config.physical_period as f64;
-        let x = -(period * (p1.c as f64 / TAU as f64 + self.period_shift1 as f64));
-        let y = -(period * (p2.c as f64 / TAU as f64 + self.period_shift2 as f64));
+        let x = -(period * (p1.c / TAU + self.period_shift1 as f64));
+        let y = -(period * (p2.c / TAU + self.period_shift2 as f64));
         let alpha = (p1.b).atan2(p1.a);
         let pixelic_period = TAU / (p1.a * p1.a + p1.b * p1.b).sqrt();
         let pixel_size = period as Real / pixelic_period;

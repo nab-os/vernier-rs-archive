@@ -23,13 +23,13 @@ The library runs on CPU by default and can dispatch to a Vulkan GPU (any vendor)
 You need a recent Rust toolchain (1.85+).
 
 ```bash
-# CPU backend + CLI
+# Everything, the CLI with its CPU and Vulkan backends (`gpu`, a default feature)
 cargo build --release
 
-# Add the Vulkan GPU backend
-cargo build --release --features gpu -p vernier-cli
+# The CLI without the Vulkan backend
+cargo build --release --no-default-features -p vernier-cli
 
-# Add the CUDA backend (requires CUDA 12.6 + cuDNN)
+# Add the CUDA backend (requires CUDA 12.6 with cuFFT)
 cargo build --release --features cuda -p vernier-cabi
 cargo build --release --features cuda -p vernier-py
 ```
@@ -109,7 +109,9 @@ A calibration only holds at the resolution it was made at. `--device` also takes
 
 ## Language bindings
 
-All bindings share the same native library (`libvernier_cabi`).  Build the library once, then build whichever language wrapper you need.
+All bindings except Python share the same native library (`libvernier_cabi`).  Build the library once, then build whichever language wrapper you need.
+
+Periodic and megarena detection are available from every language. Camera calibration, PnP and the camera/image helpers are only in the C and C++ APIs so far.
 
 ### C
 
@@ -243,7 +245,7 @@ pose = det.detect_megarena(img, 9.0, 12, 'min_frequency', 20, 'max_frequency', 5
 fprintf('x=%.2f  y=%.2f  theta=%.6f\n', pose.x, pose.y, pose.theta);
 ```
 
-The library looks for `libvernier_cabi.so` in `vernier-matlab/lib/` by default.  Copy or symlink it there from `target/release/`.
+The library looks for `libvernier_cabi.so` in `vernier-matlab/lib/` by default.  Copy or symlink it there from `target/release/`.  The header is read from `vernier-matlab/include/vernier.h` if present, otherwise from `vernier-cabi/include/vernier.h`.
 
 See `vernier-matlab/examples/detect.m` for a full example.
 
@@ -260,6 +262,8 @@ See `vernier-matlab/examples/detect.m` for a full example.
 | `vernier-spectral` | Spectral detection pipeline |
 | `vernier-patterns` | Pattern rendering (periodic, megarena) |
 | `vernier-pose` | Pose estimation and LFSR absolute decode |
+| `vernier-detector` | C++-style detector and layout objects, created by class name or from JSON |
+| `vernier-render` | Vulkan rasteriser for patterns (behind `vernier-patterns`' `vulkan` feature) |
 | `vernier-camera` | Camera calibration and PnP from the coded checkerboard |
 | `vernier-cli` | Command-line tool |
 | `vernier-webapp` | Dioxus/WebAssembly pattern generator and spectrum explorer (own workspace) |

@@ -6,13 +6,13 @@
 //! detection + pose, on the CPU backend. It is the proof that the absolute
 //! positioning — not just the fine phase — actually works on a real image.
 
-use vernier_core::buffer::BufferLayout;
 use vernier_core::Complex32;
+use vernier_core::buffer::BufferLayout;
 use vernier_cpu::CpuBackend;
-use vernier_spectral::spectrum::analyze_two;
 use vernier_patterns::PatternPose;
 use vernier_patterns::megarena::Megarena;
 use vernier_pose::absolute::{CoarseDecoder, MegarenaDecoder, extract_code};
+use vernier_spectral::spectrum::analyze_two;
 
 #[test]
 fn megarena_absolute_roundtrip() {

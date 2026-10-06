@@ -473,7 +473,10 @@ mod tests {
         for i in -10..10i64 {
             for j in -10..10i64 {
                 let (x, y) = ((i as Real + 0.5) * 7.0, (j as Real + 0.5) * 7.0);
-                assert_eq!(Checkerboard::square_from_phases(c.phase1_at(x, y), c.phase2_at(x, y)), (i, j));
+                assert_eq!(
+                    Checkerboard::square_from_phases(c.phase1_at(x, y), c.phase2_at(x, y)),
+                    (i, j)
+                );
             }
         }
     }
@@ -499,7 +502,8 @@ mod tests {
         for layout in [CodeLayout::Squares, CodeLayout::Diamonds] {
             let c = Checkerboard::new(9.0, 8).unwrap().with_code_layout(layout);
             let img = c.render(512, 512, &PatternPose::new(13.7, -4.1, 0.37));
-            let mean = img.as_slice().iter().map(|&v| v as Real).sum::<Real>() / img.as_slice().len() as Real;
+            let mean = img.as_slice().iter().map(|&v| v as Real).sum::<Real>()
+                / img.as_slice().len() as Real;
             assert!((mean - 0.5).abs() < 0.02, "{layout:?}: {mean}");
         }
     }
@@ -512,8 +516,20 @@ mod tests {
 
     #[test]
     fn rounding_is_clamped_to_a_half() {
-        assert_eq!(Checkerboard::new(9.0, 8).unwrap().with_corner_radius(2.0).corner_radius(), 0.5);
-        assert_eq!(Checkerboard::new(9.0, 8).unwrap().with_corner_radius(-1.0).corner_radius(), 0.0);
+        assert_eq!(
+            Checkerboard::new(9.0, 8)
+                .unwrap()
+                .with_corner_radius(2.0)
+                .corner_radius(),
+            0.5
+        );
+        assert_eq!(
+            Checkerboard::new(9.0, 8)
+                .unwrap()
+                .with_corner_radius(-1.0)
+                .corner_radius(),
+            0.0
+        );
     }
 
     /// The rounding must not disturb what the detector reads: the code is
@@ -564,7 +580,9 @@ mod tests {
     #[test]
     fn rounding_thins_the_uncoded_carrier_as_predicted() {
         for &radius in &[0.0, 0.25, 0.5] {
-            let c = Checkerboard::new(9.0, 8).unwrap().with_corner_radius(radius);
+            let c = Checkerboard::new(9.0, 8)
+                .unwrap()
+                .with_corner_radius(radius);
             let img = c.render_plain(512, 512, &PatternPose::new(13.7, -4.1, 0.37));
             let mean = img.as_slice().iter().map(|&v| v as Real).sum::<Real>()
                 / img.as_slice().len() as Real;
@@ -640,14 +658,19 @@ mod tests {
             count as Real / (n * n) as Real
         };
         let (one_rate, two_rate) = (inverted(&one), inverted(&two));
-        assert!(two_rate < one_rate, "one bit {one_rate}, two bits {two_rate}");
+        assert!(
+            two_rate < one_rate,
+            "one bit {one_rate}, two bits {two_rate}"
+        );
     }
 
     /// A supercell's bits must be consecutive in the sequence, or a run of
     /// supercells would not read as a run of the LFSR.
     #[test]
     fn a_supercells_bits_are_consecutive() {
-        let c = Checkerboard::new(8.0, 8).unwrap().with_code_packing(CodePacking::TwoBits);
+        let c = Checkerboard::new(8.0, 8)
+            .unwrap()
+            .with_code_packing(CodePacking::TwoBits);
         let packing = c.code_packing();
         let slots: Vec<i64> = packing
             .x_sites()
@@ -665,7 +688,10 @@ mod tests {
     fn the_axes_do_not_share_a_site() {
         for packing in CodePacking::ALL {
             for x in packing.x_sites() {
-                assert!(!packing.y_sites().contains(x), "{packing:?} collides at {x:?}");
+                assert!(
+                    !packing.y_sites().contains(x),
+                    "{packing:?} collides at {x:?}"
+                );
             }
         }
     }
@@ -696,7 +722,10 @@ mod tests {
         let diamonds = squares.clone().with_code_layout(CodeLayout::Diamonds);
         let (s, c) = (PI / 4.0).sin_cos();
         for (x, y) in [(3.0, 5.0), (-20.5, 7.25), (41.0, -33.0)] {
-            assert_eq!(diamonds.square_at(x, y), squares.square_at(c * x + s * y, c * y - s * x));
+            assert_eq!(
+                diamonds.square_at(x, y),
+                squares.square_at(c * x + s * y, c * y - s * x)
+            );
         }
     }
 }

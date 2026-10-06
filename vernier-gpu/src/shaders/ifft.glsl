@@ -7,7 +7,9 @@
 //   pass=1  →  column pass, dispatch [width,  1,      1]
 //
 // For power-of-two N ≤ 4096: Cooley-Tukey DIT (positive twiddle, scale 1/N per pass).
-// For other N             : direct IDFT (O(N²), same normalization).
+// The host sends every other N through Bluestein (bluestein_*.glsl), whose
+// padded length is a power of two, so the direct-transform branch below is
+// never dispatched.
 //
 // Combined normalization across both passes = 1/(W × H), matching rustfft.
 

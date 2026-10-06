@@ -255,9 +255,9 @@ fn missing_from_coding(coding1: i64, coding2: i64, quadrant: u8) -> (i64, i64) {
 fn cpp_frame_offsets(detection: &vernier_spectral::spectrum::Detection) -> (i64, i64) {
     use vernier_core::scalar::consts::TAU;
     let (width_f64, height_f64) = (detection.width as f64, detection.height as f64);
-    let mag1 = (detection.dir1.plane.a.powi(2) + detection.dir1.plane.b.powi(2)).sqrt() as f64;
-    let mag2 = (detection.dir2.plane.a.powi(2) + detection.dir2.plane.b.powi(2)).sqrt() as f64;
-    let pixel_period = (TAU as f64 / mag1 + TAU as f64 / mag2) / 2.0;
+    let mag1 = (detection.dir1.plane.a.powi(2) + detection.dir1.plane.b.powi(2)).sqrt();
+    let mag2 = (detection.dir2.plane.a.powi(2) + detection.dir2.plane.b.powi(2)).sqrt();
+    let pixel_period = (TAU / mag1 + TAU / mag2) / 2.0;
     let make_odd_len = |dim: f64| -> i64 {
         let mut length = (dim / pixel_period) as i64 + 1;
         if length % 2 == 0 {
@@ -286,7 +286,7 @@ fn detect_coding_orientation(
         if pixel_count > 0 {
             let i = (cell_x + offset1).rem_euclid(3) as usize;
             let j = (cell_y + offset2).rem_euclid(3) as usize;
-            sum[i][j] += intensity_sum as f64;
+            sum[i][j] += intensity_sum;
             cnt[i][j] += pixel_count;
         }
     }
@@ -379,10 +379,19 @@ fn decode_axis_bits(
         y_positions.insert(cell_y);
     }
 
-    let (coding_axis, perp_axis): (&BTreeSet<i64>, &BTreeSet<i64>) =
-        if axis_x { (&x_positions, &y_positions) } else { (&y_positions, &x_positions) };
+    let (coding_axis, perp_axis): (&BTreeSet<i64>, &BTreeSet<i64>) = if axis_x {
+        (&x_positions, &y_positions)
+    } else {
+        (&y_positions, &x_positions)
+    };
 
-    let cell_at = |axis_pos: i64, perp_pos: i64| -> (i64, i64) { if axis_x { (axis_pos, perp_pos) } else { (perp_pos, axis_pos) } };
+    let cell_at = |axis_pos: i64, perp_pos: i64| -> (i64, i64) {
+        if axis_x {
+            (axis_pos, perp_pos)
+        } else {
+            (perp_pos, axis_pos)
+        }
+    };
 
     let mut bits = BTreeMap::new();
     for &axis_pos in coding_axis {
@@ -414,15 +423,14 @@ fn decode_axis_bits(
                     // (`index2 ± 1 % 3` parses as `index2 ± 1`) means the corner is
                     // never excluded — replicated here for parity.
                     let include = if axis_x {
-                        neighbor.rem_euclid(3) != axis_missing || perp_pos.rem_euclid(3) != perp_missing
+                        neighbor.rem_euclid(3) != axis_missing
+                            || perp_pos.rem_euclid(3) != perp_missing
                     } else {
                         true
                     };
-                    if include {
-                        if let Some(mean) = pools.white_mean(cell_at(neighbor, perp_pos)) {
-                            white_sum += mean;
-                            white_count += 1;
-                        }
+                    if include && let Some(mean) = pools.white_mean(cell_at(neighbor, perp_pos)) {
+                        white_sum += mean;
+                        white_count += 1;
                     }
                 }
             }
@@ -508,14 +516,15 @@ pub struct MegarenaReadout {
 /// `None` when the 3×3 global cell is not fully observed — the same condition
 /// that stops [`extract_code`], and what a frame too small or too oblique to
 /// show one complete cell looks like.
-pub fn read_cells(
-    detection: &Detection,
-    intensity: &[f32],
-    order: u32,
-) -> Option<MegarenaReadout> {
+pub fn read_cells(detection: &Detection, intensity: &[f32], order: u32) -> Option<MegarenaReadout> {
     let (width, height) = (detection.width, detection.height);
-    let pools =
-        accumulate_cell_pools(&detection.phase1, &detection.phase2, intensity, width, height);
+    let pools = accumulate_cell_pools(
+        &detection.phase1,
+        &detection.phase2,
+        intensity,
+        width,
+        height,
+    );
     let (off1, off2) = cpp_frame_offsets(detection);
     let orientation = detect_coding_orientation(&pools, off1, off2)?;
 
@@ -555,8 +564,8 @@ pub fn read_cells(
         .map(|(x, y)| {
             let on_x = x.rem_euclid(3) == orientation.coding1;
             let on_y = y.rem_euclid(3) == orientation.coding2;
-            let corner = x.rem_euclid(3) == orientation.missing1
-                && y.rem_euclid(3) == orientation.missing2;
+            let corner =
+                x.rem_euclid(3) == orientation.missing1 && y.rem_euclid(3) == orientation.missing2;
             let role = match (corner, on_x, on_y) {
                 (true, _, _) => CellRole::MissingCorner,
                 (_, true, true) => CellRole::CodingBoth,
@@ -580,12 +589,12 @@ pub fn read_cells(
         })
         .collect();
 
-    let (x_min, x_max) = cells
-        .iter()
-        .fold((i64::MAX, i64::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
-    let (y_min, y_max) = cells
-        .iter()
-        .fold((i64::MAX, i64::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    let (x_min, x_max) = cells.iter().fold((i64::MAX, i64::MIN), |(lo, hi), c| {
+        (lo.min(c.x), hi.max(c.x))
+    });
+    let (y_min, y_max) = cells.iter().fold((i64::MAX, i64::MIN), |(lo, hi), c| {
+        (lo.min(c.y), hi.max(c.y))
+    });
 
     let centre_pixel = (height / 2) * width + width / 2;
 
@@ -613,7 +622,13 @@ pub fn decode_bit_maps(
     std::collections::BTreeMap<i64, u8>,
 ) {
     let (width, height) = (detection.width, detection.height);
-    let pools = accumulate_cell_pools(&detection.phase1, &detection.phase2, intensity, width, height);
+    let pools = accumulate_cell_pools(
+        &detection.phase1,
+        &detection.phase2,
+        intensity,
+        width,
+        height,
+    );
     let (off1, off2) = cpp_frame_offsets(detection);
     let orient = detect_coding_orientation(&pools, off1, off2).unwrap_or(CodingOrientation {
         coding1: 1,
@@ -650,7 +665,13 @@ pub fn detect_orientation(
     intensity: &[f32],
 ) -> Option<([[f64; 3]; 3], CodingOrientation)> {
     let (width, height) = (detection.width, detection.height);
-    let pools = accumulate_cell_pools(&detection.phase1, &detection.phase2, intensity, width, height);
+    let pools = accumulate_cell_pools(
+        &detection.phase1,
+        &detection.phase2,
+        intensity,
+        width,
+        height,
+    );
     let (off1, off2) = cpp_frame_offsets(detection);
 
     // Build the global cell in the physical (unshifted) frame for display.
@@ -660,7 +681,7 @@ pub fn detect_orientation(
         if pixel_count > 0 {
             let i = cell_x.rem_euclid(3) as usize;
             let j = cell_y.rem_euclid(3) as usize;
-            sum[i][j] += intensity_sum as f64;
+            sum[i][j] += intensity_sum;
             cnt[i][j] += pixel_count;
         }
     }
@@ -681,7 +702,13 @@ pub fn extract_code(
     let window_size = order as usize;
     let (width, height) = (detection.width, detection.height);
 
-    let pools = accumulate_cell_pools(&detection.phase1, &detection.phase2, intensity, width, height);
+    let pools = accumulate_cell_pools(
+        &detection.phase1,
+        &detection.phase2,
+        intensity,
+        width,
+        height,
+    );
     let (off1, off2) = cpp_frame_offsets(detection);
     let orient = detect_coding_orientation(&pools, off1, off2)?;
 
@@ -716,8 +743,8 @@ pub fn extract_code(
             if start + window_size > triples.len() {
                 break;
             }
-            let consecutive = (0..window_size)
-                .all(|j| triples[start + j] == triples[start] + j as i64);
+            let consecutive =
+                (0..window_size).all(|j| triples[start + j] == triples[start] + j as i64);
             if consecutive {
                 candidates.push(triples[start]);
             }
@@ -729,8 +756,9 @@ pub fn extract_code(
         candidates.sort_by_key(|&t| (2 * t + window_size as i64 - 1).unsigned_abs());
 
         for first_triple in candidates {
-            let window: Vec<u8> =
-                (0..window_size).map(|j| bits[&(first_triple + j as i64)]).collect();
+            let window: Vec<u8> = (0..window_size)
+                .map(|j| bits[&(first_triple + j as i64)])
+                .collect();
             if widx.locate(&window).is_some() {
                 return Some((window, first_triple));
             }
@@ -839,11 +867,17 @@ impl std::fmt::Display for MegarenaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MegarenaError::CodeExtraction => {
-                write!(f, "code extraction failed: pattern may be occluded or too small")
+                write!(
+                    f,
+                    "code extraction failed: pattern may be occluded or too small"
+                )
             }
             MegarenaError::UnsupportedCodeSize(n) => write!(f, "unsupported LFSR code size {n}"),
             MegarenaError::DecodeFailed => {
-                write!(f, "LFSR decode failed: windows did not localize in the sequence")
+                write!(
+                    f,
+                    "LFSR decode failed: windows did not localize in the sequence"
+                )
             }
         }
     }
@@ -861,7 +895,8 @@ pub fn solve_megarena(
     calib: &Calibration,
     code_size: u32,
 ) -> core::result::Result<Pose, MegarenaError> {
-    let code = extract_code(detection, intensity, code_size).ok_or(MegarenaError::CodeExtraction)?;
+    let code =
+        extract_code(detection, intensity, code_size).ok_or(MegarenaError::CodeExtraction)?;
 
     let decoder = MegarenaDecoder::new(
         code_size,
@@ -902,7 +937,11 @@ pub fn solve_megarena(
     // Negating (a, b) rotates the angle by π; Pose::new_2d wraps it back into
     // (-π, π]. This resolves the π/2 quadrant ambiguity Eq. 3 of André 2021
     // describes — the raw plane orientation alone is only correct in quadrant 0.
-    let base = if swap { &detection.dir2.plane } else { &detection.dir1.plane };
+    let base = if swap {
+        &detection.dir2.plane
+    } else {
+        &detection.dir1.plane
+    };
     let theta = if x_msb {
         base.orientation()
     } else {

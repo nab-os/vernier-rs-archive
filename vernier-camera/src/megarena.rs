@@ -108,7 +108,10 @@ impl std::fmt::Display for MegarenaError {
                 write!(f, "too few code bits seen to place the megarena")
             }
             Self::AmbiguousPosition => {
-                write!(f, "two positions matched the megarena's code about equally well")
+                write!(
+                    f,
+                    "two positions matched the megarena's code about equally well"
+                )
             }
         }
     }
@@ -195,7 +198,9 @@ fn read_cells(maps: &[[Real; 3]], intensity: &[f32]) -> HashMap<(i64, i64), bool
 
 /// The quarter-turn and the shift modulo 3 that best reproduce the fixed
 /// cells, with the fraction of them that agree.
-fn orientation(cells: &HashMap<(i64, i64), bool>) -> Result<(usize, (i64, i64), Real), MegarenaError> {
+fn orientation(
+    cells: &HashMap<(i64, i64), bool>,
+) -> Result<(usize, (i64, i64), Real), MegarenaError> {
     let mut scores = Vec::with_capacity(36);
     for transform in 0..TURNS.len() {
         for ra in 0..3 {
@@ -223,7 +228,11 @@ fn orientation(cells: &HashMap<(i64, i64), bool>) -> Result<(usize, (i64, i64), 
 
 /// Where the bits seen along one axis (`triple → bit`) sit in the code: the
 /// shift in triples, and how many bits disagree there.
-fn locate(code: &Lfsr, order: u32, bits: &HashMap<i64, bool>) -> Result<(i64, usize), MegarenaError> {
+fn locate(
+    code: &Lfsr,
+    order: u32,
+    bits: &HashMap<i64, bool>,
+) -> Result<(i64, usize), MegarenaError> {
     if bits.len() < order as usize + SPARE_BITS {
         return Err(MegarenaError::NotEnoughBits);
     }

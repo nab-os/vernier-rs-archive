@@ -673,7 +673,7 @@ distance. Same for `y` using the second plane. This is literally "fraction of th
 way through a cell × size of a cell = distance."
 
 The `Calibration` is just the physical scale that makes this conversion possible
-(`vernier-pose/src/lib.rs:26`):
+(`vernier-pose/src/lib.rs:30`):
 
 ```rust
 pub struct Calibration {

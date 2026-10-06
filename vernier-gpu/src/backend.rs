@@ -343,12 +343,7 @@ impl ComputeBackend for GpuBackend {
     }
 
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<GpuBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
 
         let host_buffer = Buffer::from_iter(
             self.memory_allocator.clone(),
@@ -864,7 +859,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(GpuBuffer {
@@ -908,7 +903,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -948,7 +943,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
 
@@ -980,7 +975,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1022,7 +1017,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1066,7 +1061,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width + 7) / 8, (height + 7) / 8, 1])
+                .dispatch([width.div_ceil(8), height.div_ceil(8), 1])
         }
         .unwrap();
         Ok(())
@@ -1082,7 +1077,7 @@ impl ComputeJob for GpuJob<'_> {
     ) -> Result<Option<GpuBuffer>> {
         let (width, height) = (buffer.width, buffer.height);
         let n = width * height;
-        let n_groups = (n + 255) / 256;
+        let n_groups = n.div_ceil(256);
 
         // 1. Deep copy input → working magnitude buffer
         let magnitude_raw = self.alloc_buffer(n);
@@ -1119,7 +1114,7 @@ impl ComputeJob for GpuJob<'_> {
                 magnitude_shader::PushConstantData { n: n as u32 },
             )
             .unwrap();
-        unsafe { self.builder.dispatch([(n as u32 + 255) / 256, 1, 1]) }.unwrap();
+        unsafe { self.builder.dispatch([(n as u32).div_ceil(256), 1, 1]) }.unwrap();
 
         // 3. annulus mask
         self.filter(&mut magnitude, min_frequency, max_frequency)?;
@@ -1227,7 +1222,7 @@ impl ComputeJob for GpuJob<'_> {
             .unwrap();
         unsafe {
             self.builder
-                .dispatch([(width as u32 + 7) / 8, (height as u32 + 7) / 8, 1])
+                .dispatch([(width as u32).div_ceil(8), (height as u32).div_ceil(8), 1])
         }
         .unwrap();
 
@@ -1330,12 +1325,7 @@ impl ComputeJob for GpuJob<'_> {
     }
 
     fn upload(&mut self, data: &[Complex32], layout: BufferLayout) -> Result<GpuBuffer> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         let n = layout.width * layout.height;
         let staging = Buffer::from_iter(
             self.backend.memory_allocator.clone(),
@@ -1374,7 +1364,7 @@ impl ComputeJob for GpuJob<'_> {
     ) -> Result<GpuBuffer> {
         let (width, height) = (spectrum.width, spectrum.height);
         let n = width * height;
-        let n_groups = (n + 63) / 64;
+        let n_groups = n.div_ceil(64);
 
         let partials = self.alloc_buffer(n_groups * 5); // 5 Complex32 = 10 floats per workgroup
         let descriptor_set_partial = self.descriptor_set(
@@ -1577,7 +1567,7 @@ mod tests {
 
     #[test]
     fn non_power_of_two_height_round_trips() {
-        // width=8 is PoT (uses FFT), height=6 is not (uses direct DFT).
+        // width=8 is PoT (uses FFT), height=6 is not (uses Bluestein).
         let backend = GpuBackend::new();
         let (data, layout) = checkerboard(8, 6);
         let mut buf = backend.upload(&data, layout).unwrap();
@@ -1590,5 +1580,41 @@ mod tests {
             assert_abs_diff_eq!(orig.re, got.re, epsilon = 1e-3);
             assert_abs_diff_eq!(orig.im, got.im, epsilon = 1e-3);
         }
+    }
+
+    #[test]
+    fn bluestein_matches_cpu_at_video_height() {
+        // 720 rows go through Bluestein, whose chirp angle πn²/N reaches
+        // ~2000 rad: it must be reduced before f32 sin/cos see it.
+        let (w, h) = (4, 720);
+        let layout = BufferLayout::packed(w, h);
+        let data: Vec<Complex32> = (0..w * h)
+            .map(|i| Complex32::new(((i * 7919) % 1000) as f32 / 1000.0 - 0.5, 0.0))
+            .collect();
+
+        let gpu = GpuBackend::new();
+        let mut buf = gpu.upload(&data, layout).unwrap();
+        let mut job = gpu.begin().unwrap();
+        job.fft2d(&mut buf).unwrap();
+        job.submit().unwrap();
+        let got = gpu.download(&buf).unwrap();
+
+        let cpu = vernier_cpu::CpuBackend::new();
+        let mut cpu_buf = cpu.upload(&data, layout).unwrap();
+        let mut cpu_job = cpu.begin().unwrap();
+        cpu_job.fft2d(&mut cpu_buf).unwrap();
+        cpu_job.submit().unwrap();
+        let want = cpu.download(&cpu_buf).unwrap();
+
+        let scale = want.iter().map(|z| z.re.hypot(z.im)).fold(0.0f32, f32::max);
+        let worst = got
+            .iter()
+            .zip(&want)
+            .map(|(g, w)| (g.re - w.re).hypot(g.im - w.im))
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst / scale < 1e-5,
+            "worst error {worst} against a peak of {scale}"
+        );
     }
 }

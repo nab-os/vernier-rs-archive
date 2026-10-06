@@ -29,8 +29,10 @@ impl<B: ComputeBackend> MegarenaPatternDetector<B> {
     /// Creates a detector with the reference-pattern defaults (9 µm period,
     /// 12-bit code).
     pub fn new(backend: B) -> Self {
-        let mut config = SpectralConfig::default();
-        config.physical_period = DEFAULT_PERIOD;
+        let config = SpectralConfig {
+            physical_period: DEFAULT_PERIOD,
+            ..SpectralConfig::default()
+        };
         Self {
             backend,
             config,
@@ -63,12 +65,20 @@ impl<B: ComputeBackend> MegarenaPatternDetector<B> {
 
 impl<B: ComputeBackend> PatternDetector for MegarenaPatternDetector<B> {
     fn compute(&mut self, image: &GrayImage) -> Result<()> {
+        // Forget the last frame first, so a failure here isn't reported as
+        // that frame's pose.
+        self.pose = None;
         let detection = run_detection(&self.backend, image, &self.config)?;
-        let calib = Calibration::new(self.config.physical_period as Real, image.width(), image.height());
+        let calib = Calibration::new(
+            self.config.physical_period as Real,
+            image.width(),
+            image.height(),
+        );
         // A failed absolute solve means "no decodable pattern here": report it
         // through `pattern_found`, not as a hard error. Backend failures above
         // still propagate.
-        self.pose = absolute::solve_megarena(&detection, image.as_slice(), &calib, self.code_size).ok();
+        self.pose =
+            absolute::solve_megarena(&detection, image.as_slice(), &calib, self.code_size).ok();
         Ok(())
     }
 

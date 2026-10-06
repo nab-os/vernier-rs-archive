@@ -129,7 +129,7 @@ extern "C" {
 // The pointer is valid until the next vernier call on this thread.
 const char *vernier_last_error(void);
 
-// Creates a CPU-backed detector. Returns NULL on allocation failure.
+// Creates a CPU-backed detector.
 //
 // Must be freed with `vernier_detector_free`.
 struct VernierDetector *vernier_detector_new(void);
@@ -154,7 +154,7 @@ void vernier_detector_free(struct VernierDetector *det);
 // - `min_frequency`    — inner annulus radius for peak search (0 = no limit).
 // - `max_frequency`    — outer annulus radius for peak search (0 = no limit).
 // - `smoothing_sigma`  — Gaussian blur on the magnitude spectrum before peak
-//                        search; 0 disables blurring.
+//   search; 0 disables blurring.
 //
 // Returns a pose with `found == 0` on failure.
 struct VernierPose vernier_detect_periodic(struct VernierDetector *det,
@@ -173,13 +173,13 @@ struct VernierPose vernier_detect_periodic(struct VernierDetector *det,
 // - `det`              — handle from `vernier_detector_new[_cuda]` (must not be NULL).
 // - `pixels`           — row-major f32 image, `width × height` elements in [0, 1].
 // - `physical_period`  — pattern spatial period in micrometres (9 µm for the
-//                        reference pattern).
+//   reference pattern).
 // - `code_size`        — LFSR order in bits (12 for the reference pattern).
 // - `sigma`            — bandpass filter half-width in frequency bins.
 // - `min_frequency`    — inner annulus radius for peak search (0 = no limit).
 // - `max_frequency`    — outer annulus radius for peak search (0 = no limit).
 // - `smoothing_sigma`  — Gaussian blur on the magnitude spectrum before peak
-//                        search; 0 disables blurring.
+//   search; 0 disables blurring.
 //
 // Returns a pose with `found == 0` on failure.
 struct VernierPose vernier_detect_megarena(struct VernierDetector *det,

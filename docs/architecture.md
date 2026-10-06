@@ -31,12 +31,10 @@ graph TD
     patterns -. "vulkan" .-> render
 
     spectral --> core
-    spectral --> cpu
 
     pose --> core
     pose --> spectral
     pose --> patterns
-    pose --> cpu
 
     detector --> core
     detector --> spectral
@@ -53,6 +51,8 @@ graph TD
     cabi -. "cuda" .-> cuda
     cabi --> spectral
     cabi --> pose
+    cabi --> patterns
+    cabi --> camera
 
     py --> core
     py --> cpu
@@ -62,47 +62,32 @@ graph TD
 
     cli --> core
     cli --> cpu
-    cli --> gpu
-    cli --> cuda
+    cli -. "gpu" .-> gpu
+    cli -. "cuda" .-> cuda
     cli --> spectral
     cli --> pose
     cli --> patterns
     cli --> camera
 ```
 
-## ASCII (arrows point downward = "depends on")
+## ASCII (each crate depends only on crates in the layers below it)
 
 ```
-  ┌────────────┐   ┌────────────┐   ┌────────────┐        ┌──────────────────┐
-  │ vernier-cli│   │vernier-cabi│   │ vernier-py │        │ vernier-detector │   ← leaf crates
-  └─────┬──────┘   └─────┬──────┘   └─────┬──────┘        └────────┬─────────┘   (nothing depends
-        │                │                │                        │              on these)
-        │   ┌────────────┴────────────────┴────────────────────────┤
-        │   │                                                       │
-        ▼   ▼                                                       ▼
-   ┌──────────────────────────────────────────────┐        ┌───────────────┐
-   │                 vernier-pose                  │◄───────┤ (detector too)│
-   └───────────────────────┬──────────────────────┘        └───────────────┘
-                           │
-                           ▼
-                 ┌──────────────────┐
-                 │ vernier-spectral │◄──── cli, cabi, py, pose, detector
-                 └─────────┬────────┘
-                           ▼
-                 ┌──────────────────┐
-                 │ vernier-patterns │◄──── pose, detector, cli
-                 └─────────┬────────┘
-                           │ (vulkan feature, optional)
-                           ▼
-   ┌───────────┐   ┌───────────┐   ┌────────────┐   ┌────────────────┐
-   │vernier-cpu│   │vernier-gpu│   │vernier-cuda│   │ vernier-render │
-   └─────┬─────┘   └─────┬─────┘   └─────┬──────┘   └───────┬────────┘
-         └───────────────┴───────────────┴──────────────────┘
-                           ▼
-                   ┌───────────────┐
-                   │  vernier-core │   ← foundation (no internal deps)
-                   └───────────────┘
+  leaves     vernier-cli · vernier-cabi · vernier-py · vernier-detector
+                 │
+  camera     vernier-camera                       (used by cli and cabi)
+                 │
+  pose       vernier-pose
+                 │
+  engine     vernier-spectral · vernier-patterns  (patterns uses render
+                 │                                 with its `vulkan` feature)
+  backends   vernier-cpu · vernier-gpu · vernier-cuda · vernier-render
+                 │
+  base       vernier-core
 ```
+
+The leaves also reach past the layer right below them (the CLI uses every
+backend, for instance); the exact edges are in the table below.
 
 ## Exact edges
 
@@ -112,18 +97,20 @@ graph TD
 | `vernier-cpu` / `vernier-gpu` / `vernier-cuda` | core |
 | `vernier-render` | core |
 | `vernier-patterns` | core, render *(optional, `vulkan` feature)* |
-| `vernier-spectral` | core, cpu |
-| `vernier-pose` | core, spectral, patterns, cpu |
+| `vernier-spectral` | core *(cpu in tests)* |
+| `vernier-pose` | core, spectral, patterns *(cpu in tests)* |
+| `vernier-camera` | core, patterns, pose *(cpu in tests)* |
 | `vernier-detector` | core, spectral, pose, cpu, patterns |
-| `vernier-cabi` | core, cpu, cuda *(optional, `cuda` feature)*, spectral, pose |
+| `vernier-cabi` | core, cpu, cuda *(optional, `cuda` feature)*, spectral, pose, patterns, camera |
 | `vernier-py` | core, cpu, cuda *(optional, `cuda` feature)*, spectral, pose |
-| `vernier-cli` | core, cpu, spectral, pose, patterns, gpu, cuda |
+| `vernier-cli` | core, cpu, spectral, pose, patterns, camera, gpu *(optional, `gpu` feature, default)*, cuda *(optional, `cuda` feature)* |
 
 ## Notes
 
 - `vernier-core` is the universal base (shared types: `Pose`, `ComputeBackend`,
   `BufferLayout`, …). `vernier-cpu` is the next-most-depended-on — the default
-  backend, pulled in by spectral, pose, detector, cabi, py, and cli.
+  backend, pulled in by detector, cabi, py and cli (spectral, pose and camera
+  use it only in their tests).
 - `vernier-spectral` is the low-level spectral engine (FFT → bandpass → phase →
   unwrap → plane fit). It was renamed from `vernier-detection` to avoid
   confusion with `vernier-detector`.

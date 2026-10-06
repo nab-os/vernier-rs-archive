@@ -1,5 +1,6 @@
 //! The [`ComputeBackend`] and [`ComputeJob`] traits. `vernier-cpu` implements
-//! them with `rustfft`/`ndarray`; `vernier-gpu` with Vulkano compute.
+//! them with `rustfft`/`ndarray`, `vernier-gpu` with Vulkano compute and
+//! `vernier-cuda` with cuFFT and CUDA kernels.
 //!
 //! A job groups several operations. You `begin()` a job, queue work on it, then
 //! `submit()`. On the CPU everything runs immediately and `submit` is a no-op;

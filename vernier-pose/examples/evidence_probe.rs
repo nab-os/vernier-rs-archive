@@ -27,7 +27,10 @@ impl Lcg {
         Lcg(z ^ (z >> 31))
     }
     fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 32) as u32
     }
     fn unit(&mut self) -> f64 {
@@ -206,13 +209,17 @@ fn degrade(image: &mut [f32], variant: Variant, level: f64, seed: u64) {
         }),
         Variant::Vignette => {
             let rmax2 = 2.0 * half * half;
-            gain_map(image, &|x, y| (1.0 - level * (x * x + y * y) / rmax2).max(0.0))
+            gain_map(image, &|x, y| {
+                (1.0 - level * (x * x + y * y) / rmax2).max(0.0)
+            })
         }
         Variant::Shading => {
             // Blotches about 256 px across, a phase offset so the centre is not
             // special.
             let k = std::f64::consts::TAU / 256.0;
-            gain_map(image, &|x, y| 1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin())
+            gain_map(image, &|x, y| {
+                1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin()
+            })
         }
         Variant::Defocus => gaussian_blur(image, level),
         Variant::Motion0 => motion_blur(image, level, 0.0),
@@ -280,13 +287,17 @@ fn main() {
     }
 
     let offs = offsets();
-    println!("design,variant,level,tile,outcome,false_accept,errors_x,errors_y,check_bits,offset_i,offset_j,err_px,runner_up_fa");
+    println!(
+        "design,variant,level,tile,outcome,false_accept,errors_x,errors_y,check_bits,offset_i,offset_j,err_px,runner_up_fa"
+    );
     for (variant, level, tile) in conditions {
         for (name, layout, nominal) in [
             ("square", CodeLayout::Squares, 0.0),
             ("diamond", CodeLayout::Diamonds, 0.0),
         ] {
-            let pattern = Checkerboard::new(tile, ORDER).unwrap().with_code_layout(layout);
+            let pattern = Checkerboard::new(tile, ORDER)
+                .unwrap()
+                .with_code_layout(layout);
             let period = 3 * pattern.code().len() as i64;
             let rows: Vec<String> = std::thread::scope(|scope| {
                 let handles: Vec<_> = offs
@@ -304,25 +315,49 @@ fn main() {
                             let label = variant.map(|v| v.name()).unwrap_or("clean");
                             let backend = CpuBackend::new();
                             let prefix = format!("{name},{label},{level},{tile}");
-                            let Ok(det) = detect_checkerboard(&backend, &image, BufferLayout::packed(SIZE, SIZE), 4.0, 10, 0, 0.0) else {
+                            let Ok(det) = detect_checkerboard(
+                                &backend,
+                                &image,
+                                BufferLayout::packed(SIZE, SIZE),
+                                4.0,
+                                10,
+                                0,
+                                0.0,
+                            ) else {
                                 return format!("{prefix},nodetect,,,,,,,,");
                             };
-                            let Ok((rec, code)) = solve_checkerboard_with_layout(&det, &image, tile, ORDER, layout) else {
+                            let Ok((rec, code)) =
+                                solve_checkerboard_with_layout(&det, &image, tile, ORDER, layout)
+                            else {
                                 return format!("{prefix},nodecode,,,,,,,,");
                             };
                             let (lx, ly) = layout.to_lattice(-pose.x, -pose.y);
-                            let want = ((lx / tile - 0.5).round() as i64, (ly / tile - 0.5).round() as i64);
+                            let want = (
+                                (lx / tile - 0.5).round() as i64,
+                                (ly / tile - 0.5).round() as i64,
+                            );
                             let signed = |v: i64| {
                                 let v = v.rem_euclid(period);
                                 if v > period / 2 { v - period } else { v }
                             };
-                            let (oi, oj) = (signed(code.centre_square.0 - want.0), signed(code.centre_square.1 - want.1));
+                            let (oi, oj) = (
+                                signed(code.centre_square.0 - want.0),
+                                signed(code.centre_square.1 - want.1),
+                            );
                             let (ex, ey) = pattern.wrap_offset(rec.x + pose.x, rec.y + pose.y);
-                            let outcome = if oi == 0 && oj == 0 { "correct" } else { "wrong" };
+                            let outcome = if oi == 0 && oj == 0 {
+                                "correct"
+                            } else {
+                                "wrong"
+                            };
                             format!(
                                 "{prefix},{outcome},{:e},{},{},{},{oi},{oj},{:.4},{:e}",
-                                code.false_accept, code.bit_errors.0, code.bit_errors.1, code.check_bits,
-                                (ex * ex + ey * ey).sqrt(), code.runner_up_false_accept
+                                code.false_accept,
+                                code.bit_errors.0,
+                                code.bit_errors.1,
+                                code.check_bits,
+                                (ex * ex + ey * ey).sqrt(),
+                                code.runner_up_false_accept
                             )
                         })
                     })

@@ -1,5 +1,5 @@
 //! Bitmap thumbnail extraction + template matching — the model-reduction step
-//! behind the bitmap/stamp detectors.
+//! behind the bitmap detector.
 //!
 //! Ports C++ `vernier::BitmapThumbnail` and the `cv::matchTemplate(TM_CCOEFF)` /
 //! `cv::minMaxLoc` calls used by `BitmapPatternDetector`, in pure Rust (no
@@ -32,7 +32,7 @@ impl BitmapThumbnail {
             size,
             thumbnail: vec![0; size * size],
             binary: vec![0; size * size],
-            delta_phase: (PI / 4.0) as f64,
+            delta_phase: (PI / 4.0),
         }
     }
 
@@ -52,11 +52,11 @@ impl BitmapThumbnail {
         let mut number = vec![0.0f64; n * n];
         let mut cumul = vec![0.0f64; n * n];
 
-        let (a1, b1, c1) = (plane1.a as f64, plane1.b as f64, plane1.c as f64);
-        let (a2, b2, c2) = (plane2.a as f64, plane2.b as f64, plane2.c as f64);
+        let (a1, b1, c1) = (plane1.a, plane1.b, plane1.c);
+        let (a2, b2, c2) = (plane2.a, plane2.b, plane2.c);
         let half_w = (width / 2) as i64;
         let half_h = (height / 2) as i64;
-        let pi = PI as f64;
+        let pi = PI;
 
         for row in 0..height {
             let y = (row as i64 - half_h) as f64;
@@ -113,7 +113,11 @@ impl BitmapThumbnail {
         }
         let threshold = ((mean_bg + mean_fg) / 2.0) as u8;
         for i in 0..n * n {
-            self.binary[i] = if self.thumbnail[i] > threshold { 255 } else { 0 };
+            self.binary[i] = if self.thumbnail[i] > threshold {
+                255
+            } else {
+                0
+            };
         }
     }
 }

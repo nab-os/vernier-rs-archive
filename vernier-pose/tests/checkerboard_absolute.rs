@@ -20,7 +20,9 @@ const LAYOUTS: [CodeLayout; 2] = [CodeLayout::Squares, CodeLayout::Diamonds];
 fn random_poses(seed: u64, n: usize) -> Vec<PatternPose> {
     let mut state = seed;
     let mut unit = move || {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((state >> 32) as f64 + 0.5) / (u32::MAX as f64 + 1.0)
     };
     (0..n)
@@ -36,11 +38,23 @@ fn solve(pattern: &Checkerboard, pose: &PatternPose) -> vernier_core::Pose {
     let buffer = BufferLayout::packed(SIZE, SIZE);
     let packing = pattern.code_packing();
     let detection = detect_checkerboard_with_packing(
-        &CpuBackend::new(), image.as_slice(), buffer, 4.0, 10, 0, 0.0, packing,
+        &CpuBackend::new(),
+        image.as_slice(),
+        buffer,
+        4.0,
+        10,
+        0,
+        0.0,
+        packing,
     )
     .unwrap();
     solve_checkerboard_with_packing(
-        &detection, image.as_slice(), SQUARE, ORDER, pattern.code_layout(), packing,
+        &detection,
+        image.as_slice(),
+        SQUARE,
+        ORDER,
+        pattern.code_layout(),
+        packing,
     )
     .unwrap_or_else(|e| panic!("{:?}/{packing:?} at {pose:?}: {e}", pattern.code_layout()))
     .0
@@ -55,7 +69,9 @@ fn position_error(pattern: &Checkerboard, pose: &PatternPose) -> f64 {
 #[test]
 fn decodes_random_poses() {
     for layout in LAYOUTS {
-        let pattern = Checkerboard::new(SQUARE, ORDER).unwrap().with_code_layout(layout);
+        let pattern = Checkerboard::new(SQUARE, ORDER)
+            .unwrap()
+            .with_code_layout(layout);
         for pose in random_poses(0x2545_f491_4f6c_dd1d, 24) {
             let error = position_error(&pattern, &pose);
             assert!(error < 0.25, "{layout:?} at {pose:?}: {error:.3} px");
@@ -66,13 +82,20 @@ fn decodes_random_poses() {
 #[test]
 fn reports_the_orientation() {
     for layout in LAYOUTS {
-        let pattern = Checkerboard::new(SQUARE, ORDER).unwrap().with_code_layout(layout);
+        let pattern = Checkerboard::new(SQUARE, ORDER)
+            .unwrap()
+            .with_code_layout(layout);
         for degrees in [-170.0f64, -80.0, 0.0, 45.0, 100.0, 150.0] {
             let theta = degrees.to_radians();
             let found = solve(&pattern, &PatternPose::new(123.4, -567.8, theta));
-            let error = (found.theta - theta + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+            let error = (found.theta - theta + std::f64::consts::PI)
+                .rem_euclid(std::f64::consts::TAU)
                 - std::f64::consts::PI;
-            assert!(error.to_degrees().abs() < 0.05, "{layout:?} at {degrees}: {}", found.theta.to_degrees());
+            assert!(
+                error.to_degrees().abs() < 0.05,
+                "{layout:?} at {degrees}: {}",
+                found.theta.to_degrees()
+            );
         }
     }
 }
@@ -84,9 +107,14 @@ const LOCKING_POSES: [usize; 5] = [1, 27, 38, 52, 97];
 fn recovers_from_a_subharmonic_lock() {
     let poses = random_poses(0x9e37_79b9_7f4a_7c15, 100);
     for layout in LAYOUTS {
-        let pattern = Checkerboard::new(SQUARE, ORDER).unwrap().with_code_layout(layout);
+        let pattern = Checkerboard::new(SQUARE, ORDER)
+            .unwrap()
+            .with_code_layout(layout);
         for index in LOCKING_POSES {
-            assert!(position_error(&pattern, &poses[index]) < 0.5 * SQUARE, "{layout:?} pose {index}");
+            assert!(
+                position_error(&pattern, &poses[index]) < 0.5 * SQUARE,
+                "{layout:?} pose {index}"
+            );
         }
     }
 }
@@ -97,7 +125,11 @@ fn refuses_a_subharmonic_lock() {
     let pattern = Checkerboard::new(SQUARE, ORDER).unwrap();
     for index in [1, 97] {
         let image = pattern.render(SIZE, SIZE, &poses[index]);
-        let complex: Vec<Complex32> = image.as_slice().iter().map(|&v| Complex32::new(v, 0.0)).collect();
+        let complex: Vec<Complex32> = image
+            .as_slice()
+            .iter()
+            .map(|&v| Complex32::new(v, 0.0))
+            .collect();
         let buffer = BufferLayout::packed(SIZE, SIZE);
         let detection = analyze_two(&CpuBackend::new(), &complex, buffer, 4.0, 10, 0, 0.0).unwrap();
         assert!(matches!(
@@ -148,8 +180,16 @@ fn reports_the_squares_the_decode_reads() {
     let pose = PatternPose::new(137.0, -62.0, 0.21);
     let image = pattern.render(SIZE, SIZE, &pose);
     let buffer = BufferLayout::packed(SIZE, SIZE);
-    let detection =
-        detect_checkerboard(&CpuBackend::new(), image.as_slice(), buffer, 4.0, 10, 0, 0.0).unwrap();
+    let detection = detect_checkerboard(
+        &CpuBackend::new(),
+        image.as_slice(),
+        buffer,
+        4.0,
+        10,
+        0,
+        0.0,
+    )
+    .unwrap();
 
     let readout = read_squares(&detection, image.as_slice(), ORDER, CodeLayout::Squares)
         .expect("the frame is full of squares");
@@ -170,7 +210,9 @@ fn reports_the_squares_the_decode_reads() {
     // Sites per residue class, and per supercell band within a class.
     let mut per_class: BTreeMap<(i64, i64), (usize, usize)> = BTreeMap::new();
     for square in &readout.squares {
-        let Some(is_site) = square.is_coding_site else { continue };
+        let Some(is_site) = square.is_coding_site else {
+            continue;
+        };
         let entry = per_class
             .entry((square.i.rem_euclid(3), square.j.rem_euclid(3)))
             .or_default();
@@ -193,7 +235,9 @@ fn reports_the_squares_the_decode_reads() {
     let banded = |class: (i64, i64), along_i: bool| {
         let mut bands: BTreeMap<i64, (usize, usize)> = BTreeMap::new();
         for square in &readout.squares {
-            let Some(is_site) = square.is_coding_site else { continue };
+            let Some(is_site) = square.is_coding_site else {
+                continue;
+            };
             if (square.i.rem_euclid(3), square.j.rem_euclid(3)) != class {
                 continue;
             }
@@ -208,7 +252,10 @@ fn reports_the_squares_the_decode_reads() {
     for &class in &coding {
         let (i_bands, i_mixed) = banded(class, true);
         let (j_bands, j_mixed) = banded(class, false);
-        assert!(i_bands > 10 && j_bands > 10, "too few bands to judge {class:?}");
+        assert!(
+            i_bands > 10 && j_bands > 10,
+            "too few bands to judge {class:?}"
+        );
         assert!(
             i_mixed == 0 || j_mixed == 0,
             "class {class:?} is banded along neither axis: \
@@ -235,20 +282,30 @@ fn reports_the_squares_the_two_bit_decode_reads() {
     let image = pattern.render(SIZE, SIZE, &pose);
     let buffer = BufferLayout::packed(SIZE, SIZE);
     let detection = detect_checkerboard_with_packing(
-        &CpuBackend::new(), image.as_slice(), buffer, 4.0, 10, 0, 0.0, CodePacking::TwoBits,
+        &CpuBackend::new(),
+        image.as_slice(),
+        buffer,
+        4.0,
+        10,
+        0,
+        0.0,
+        CodePacking::TwoBits,
     )
     .unwrap();
 
     let readout = read_squares_with_packing(
-        &detection, image.as_slice(), ORDER, CodeLayout::Squares, CodePacking::TwoBits,
+        &detection,
+        image.as_slice(),
+        ORDER,
+        CodeLayout::Squares,
+        CodePacking::TwoBits,
     )
     .expect("the frame is full of squares");
 
     // Two bits per axis, so sites fall in four residue classes mod 5. Site
     // marking ignores the packing; the decode below is what exercises it.
     let cell = CodePacking::TwoBits.cell();
-    let expected =
-        CodePacking::TwoBits.x_sites().len() + CodePacking::TwoBits.y_sites().len();
+    let expected = CodePacking::TwoBits.x_sites().len() + CodePacking::TwoBits.y_sites().len();
     let mut per_class: BTreeMap<(i64, i64), usize> = BTreeMap::new();
     for square in &readout.squares {
         if square.is_coding_site == Some(true) {
@@ -265,7 +322,11 @@ fn reports_the_squares_the_two_bit_decode_reads() {
     );
 
     let direct = extract_code_with_packing(
-        &detection, image.as_slice(), ORDER, CodeLayout::Squares, CodePacking::TwoBits,
+        &detection,
+        image.as_slice(),
+        ORDER,
+        CodeLayout::Squares,
+        CodePacking::TwoBits,
     )
     .unwrap();
     let via_readout = readout.code.expect("the same code, read the same way");

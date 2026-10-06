@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use smallvec::smallvec;
+use vulkano::VulkanLibrary;
 use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
@@ -11,15 +12,16 @@ use vulkano::command_buffer::{
     SubpassBeginInfo, SubpassContents, SubpassEndInfo,
 };
 use vulkano::device::physical::PhysicalDeviceType;
-use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags};
+use vulkano::device::{
+    Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
+};
 use vulkano::format::{ClearValue, Format};
-use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
 use vulkano::image::view::ImageView;
+use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
 use vulkano::instance::{Instance, InstanceCreateFlags, InstanceCreateInfo};
 use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator};
-use vulkano::pipeline::graphics::color_blend::{
-    ColorBlendAttachmentState, ColorBlendState,
-};
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
+use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
 use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
 use vulkano::pipeline::graphics::multisample::MultisampleState;
 use vulkano::pipeline::graphics::rasterization::{CullMode, RasterizationState};
@@ -28,14 +30,12 @@ use vulkano::pipeline::graphics::vertex_input::{
     VertexInputState,
 };
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
 use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 use vulkano::pipeline::{
     DynamicState, GraphicsPipeline, Pipeline, PipelineLayout, PipelineShaderStageCreateInfo,
 };
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::sync::{self, GpuFuture};
-use vulkano::VulkanLibrary;
 
 use vernier_core::GrayImage;
 
@@ -105,6 +105,7 @@ impl PatternRenderer {
     ///
     /// Selects the best available physical device (discrete > integrated > …)
     /// that supports the required features.
+    #[allow(clippy::new_without_default)] // Creating a Vulkan device isn't a default.
     pub fn new() -> Self {
         let library = VulkanLibrary::new().expect("no Vulkan library");
 
@@ -185,10 +186,18 @@ impl PatternRenderer {
 
         // Static unit-quad: 4 corners covering [0,1]×[0,1].
         let vertices = [
-            VertexData { local_corner: [0.0, 0.0] },
-            VertexData { local_corner: [1.0, 0.0] },
-            VertexData { local_corner: [0.0, 1.0] },
-            VertexData { local_corner: [1.0, 1.0] },
+            VertexData {
+                local_corner: [0.0, 0.0],
+            },
+            VertexData {
+                local_corner: [1.0, 0.0],
+            },
+            VertexData {
+                local_corner: [0.0, 1.0],
+            },
+            VertexData {
+                local_corner: [1.0, 1.0],
+            },
         ];
         let vertex_buffer = Buffer::from_iter(
             memory_allocator.clone(),
@@ -335,11 +344,7 @@ impl PatternRenderer {
     /// `width × height` grayscale image and returns it as a [`GrayImage`].
     ///
     /// If `cell_origins` is empty the result is all-zero (no light).
-    pub fn render_quads(
-        &self,
-        cell_origins: &[[f32; 2]],
-        params: &RenderParams,
-    ) -> GrayImage {
+    pub fn render_quads(&self, cell_origins: &[[f32; 2]], params: &RenderParams) -> GrayImage {
         let width = params.width;
         let height = params.height;
 
@@ -359,7 +364,9 @@ impl PatternRenderer {
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            cell_origins.iter().map(|&o| InstanceData { cell_origin: o }),
+            cell_origins
+                .iter()
+                .map(|&o| InstanceData { cell_origin: o }),
         )
         .unwrap();
 
@@ -449,10 +456,7 @@ impl PatternRenderer {
             .unwrap()
             .bind_pipeline_graphics(self.pipeline.clone())
             .unwrap()
-            .bind_vertex_buffers(
-                0,
-                (self.vertex_buffer.clone(), instance_buffer.clone()),
-            )
+            .bind_vertex_buffers(0, (self.vertex_buffer.clone(), instance_buffer.clone()))
             .unwrap()
             .bind_index_buffer(self.index_buffer.clone())
             .unwrap()

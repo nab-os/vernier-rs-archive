@@ -71,7 +71,14 @@ impl Rng {
 
 /// `image` blurred by a Gaussian of `sigma` px, edges clamped, plus sensor
 /// noise of deviation `noise` seeded by `seed`, clipped to `0..=1`.
-fn degrade(image: &[f32], width: usize, height: usize, sigma: f64, noise: f64, seed: u64) -> Vec<f32> {
+fn degrade(
+    image: &[f32],
+    width: usize,
+    height: usize,
+    sigma: f64,
+    noise: f64,
+    seed: u64,
+) -> Vec<f32> {
     let mut out = image.to_vec();
     if sigma > 0.0 {
         let radius = (3.0 * sigma).ceil() as isize;
@@ -89,9 +96,11 @@ fn degrade(image: &[f32], width: usize, height: usize, sigma: f64, noise: f64, s
                         .map(|(tap, &weight)| {
                             let offset = tap as isize - radius;
                             let at = if horizontal {
-                                y as usize * width + (x + offset).clamp(0, width as isize - 1) as usize
+                                y as usize * width
+                                    + (x + offset).clamp(0, width as isize - 1) as usize
                             } else {
-                                (y + offset).clamp(0, height as isize - 1) as usize * width + x as usize
+                                (y + offset).clamp(0, height as isize - 1) as usize * width
+                                    + x as usize
                             };
                             weight * src[at] as f64
                         })
@@ -159,7 +168,9 @@ fn flat<B: ComputeBackend>(
     let (solve_ms, solved) = timed(|| {
         solve_checkerboard_with_layout(&detection, image, square, ORDER, CodeLayout::Squares)
     });
-    let pose = solved.ok().map(|(p, _)| PatternPose::new(p.x, p.y, p.theta));
+    let pose = solved
+        .ok()
+        .map(|(p, _)| PatternPose::new(p.x, p.y, p.theta));
     (detect_ms + solve_ms, detect_ms, pose)
 }
 
@@ -171,9 +182,8 @@ fn local<D: LocalDemodulator>(
     height: usize,
     target: &Target,
 ) -> (f64, f64, Option<View>) {
-    let (ms, (measured, trace)) = timed(|| {
-        measure_view_traced_with(demodulator, image, width, height, target, None, false)
-    });
+    let (ms, (measured, trace)) =
+        timed(|| measure_view_traced_with(demodulator, image, width, height, target, None, false));
     let view = measured.ok().filter(View::is_absolute);
     (ms, trace.search_ms, view)
 }
@@ -250,9 +260,10 @@ impl SquareOn<'_> {
             .iter()
             .map(|p| {
                 let (x, y) = into_pattern_frame(p.pixel[0], p.pixel[1], cx, cy, self.pose.theta);
-                let (ex, ey) = self
-                    .pattern
-                    .wrap_offset(p.board[0] - (x - self.pose.x), p.board[1] - (y - self.pose.y));
+                let (ex, ey) = self.pattern.wrap_offset(
+                    p.board[0] - (x - self.pose.x),
+                    p.board[1] - (y - self.pose.y),
+                );
                 ex.hypot(ey)
             })
             .collect();
@@ -283,23 +294,50 @@ fn median(mut values: Vec<f64>) -> f64 {
 fn row(outcomes: &[Outcome]) -> [String; 7] {
     let ms = median(outcomes.iter().map(|o| o.ms).collect());
     let first = median(outcomes.iter().map(|o| o.first_ms).collect());
-    let position = median(outcomes.iter().filter_map(|o| o.error.map(|e| e.0)).collect());
-    let turn = median(outcomes.iter().filter_map(|o| o.error.map(|e| e.1)).collect());
-    let errors: Vec<f64> = outcomes.iter().flat_map(|o| o.point_errors.clone()).collect();
+    let position = median(
+        outcomes
+            .iter()
+            .filter_map(|o| o.error.map(|e| e.0))
+            .collect(),
+    );
+    let turn = median(
+        outcomes
+            .iter()
+            .filter_map(|o| o.error.map(|e| e.1))
+            .collect(),
+    );
+    let errors: Vec<f64> = outcomes
+        .iter()
+        .flat_map(|o| o.point_errors.clone())
+        .collect();
     let fine: Vec<f64> = errors.iter().copied().filter(|&e| e <= GROSS).collect();
     let (rms, gross) = if errors.is_empty() {
         ("–".into(), "–".into())
     } else {
         (
-            format!("{:.4}", (fine.iter().map(|e| e * e).sum::<f64>() / fine.len() as f64).sqrt()),
-            format!("{:.1}%", 100.0 * (errors.len() - fine.len()) as f64 / errors.len() as f64),
+            format!(
+                "{:.4}",
+                (fine.iter().map(|e| e * e).sum::<f64>() / fine.len() as f64).sqrt()
+            ),
+            format!(
+                "{:.1}%",
+                100.0 * (errors.len() - fine.len()) as f64 / errors.len() as f64
+            ),
         )
     };
     let or_dash = |v: f64, digits: usize| {
-        if v.is_nan() { "–".into() } else { format!("{v:.digits$}") }
+        if v.is_nan() {
+            "–".into()
+        } else {
+            format!("{v:.digits$}")
+        }
     };
     [
-        format!("{}/{}", outcomes.iter().filter(|o| o.correct).count(), outcomes.len()),
+        format!(
+            "{}/{}",
+            outcomes.iter().filter(|o| o.correct).count(),
+            outcomes.len()
+        ),
         format!("{ms:.1}"),
         format!("{first:.1}"),
         or_dash(position, 4),
@@ -310,8 +348,7 @@ fn row(outcomes: &[Outcome]) -> [String; 7] {
 }
 
 const METHODS: [&str; 4] = ["flat gpu", "flat cpu", "local gpu", "local cpu"];
-const HEADER: &str =
-    "| method | correct | ms | of which detect/search | position px | turn ° | points rms px | points > 1 px |";
+const HEADER: &str = "| method | correct | ms | of which detect/search | position px | turn ° | points rms px | points > 1 px |";
 
 fn print_rows(csv: &mut std::fs::File, set: &str, level: &str, results: &[Vec<Outcome>; 4]) {
     println!("{HEADER}");
@@ -344,7 +381,14 @@ fn square_on(csv: &mut std::fs::File, gpu: &GpuBackend, cpu: &CpuBackend) {
         for sigma in SIGMAS {
             let mut results: [Vec<Outcome>; 4] = Default::default();
             for (index, pose) in poses.iter().enumerate() {
-                let image = degrade(&renders[index], width, height, sigma, NOISE, index as u64 + 1);
+                let image = degrade(
+                    &renders[index],
+                    width,
+                    height,
+                    sigma,
+                    NOISE,
+                    index as u64 + 1,
+                );
                 let truth = SquareOn {
                     pattern: &pattern,
                     square,
@@ -355,12 +399,23 @@ fn square_on(csv: &mut std::fs::File, gpu: &GpuBackend, cpu: &CpuBackend) {
                 results[0].push(truth.flat(flat(gpu, &image, width, height, square)));
                 results[1].push(truth.flat(flat(cpu, &image, width, height, square)));
                 results[2].push(truth.local(local(gpu, &image, width, height, &target)));
-                results[3].push(truth.local(local(&CpuDemodulator, &image, width, height, &target)));
+                results[3].push(truth.local(local(
+                    &CpuDemodulator,
+                    &image,
+                    width,
+                    height,
+                    &target,
+                )));
             }
             println!(
                 "\n### square on, {width}×{height}, {square} px squares, defocus σ {sigma} px, noise {NOISE}, {POSES} poses\n"
             );
-            print_rows(csv, &format!("square-on {width}x{height}"), &format!("sigma {sigma}"), &results);
+            print_rows(
+                csv,
+                &format!("square-on {width}x{height}"),
+                &format!("sigma {sigma}"),
+                &results,
+            );
         }
     }
 }
@@ -393,7 +448,9 @@ fn tilted(csv: &mut std::fs::File, gpu: &GpuBackend, cpu: &CpuBackend) {
         )
     })
     .collect();
-    println!("\n### tilted through a 720p camera, 5 mm squares at ~350 mm (~14 px), noise {NOISE}\n");
+    println!(
+        "\n### tilted through a 720p camera, 5 mm squares at ~350 mm (~14 px), noise {NOISE}\n"
+    );
     println!("Global: correct = the code read (no truth to judge one similarity against).\n");
     let mut all: [Vec<Outcome>; 4] = Default::default();
     for (index, (name, pose)) in poses.iter().enumerate() {
@@ -437,7 +494,11 @@ fn tilted(csv: &mut std::fs::File, gpu: &GpuBackend, cpu: &CpuBackend) {
         ];
         print!("pose {index} ({name}):");
         for (method, o) in METHODS.iter().zip(&frame) {
-            print!(" {method} {:.1} ms{};", o.ms, if o.correct { "" } else { " ✗" });
+            print!(
+                " {method} {:.1} ms{};",
+                o.ms,
+                if o.correct { "" } else { " ✗" }
+            );
         }
         println!();
         for (list, o) in all.iter_mut().zip(frame) {

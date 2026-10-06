@@ -36,7 +36,10 @@ impl Lcg {
         Lcg(z ^ (z >> 31))
     }
     fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 32) as u32
     }
     fn unit(&mut self) -> f64 {
@@ -215,13 +218,17 @@ fn degrade(image: &mut [f32], variant: Variant, level: f64, seed: u64) {
         }),
         Variant::Vignette => {
             let rmax2 = 2.0 * half * half;
-            gain_map(image, &|x, y| (1.0 - level * (x * x + y * y) / rmax2).max(0.0))
+            gain_map(image, &|x, y| {
+                (1.0 - level * (x * x + y * y) / rmax2).max(0.0)
+            })
         }
         Variant::Shading => {
             // Blotches about 256 px across, a phase offset so the centre is not
             // special.
             let k = std::f64::consts::TAU / 256.0;
-            gain_map(image, &|x, y| 1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin())
+            gain_map(image, &|x, y| {
+                1.0 + level * (k * x + 0.7).sin() * (k * y + 1.9).sin()
+            })
         }
         Variant::Defocus => gaussian_blur(image, level),
         Variant::Motion0 => motion_blur(image, level, 0.0),
@@ -267,15 +274,24 @@ fn pose_offset() -> (f64, f64, f64) {
 fn write_pgm(path: &std::path::Path, image: &[f32]) {
     let mut file = std::fs::File::create(path).expect("create pgm");
     write!(file, "P5\n{SIZE} {SIZE}\n255\n").unwrap();
-    let bytes: Vec<u8> = image.iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+    let bytes: Vec<u8> = image
+        .iter()
+        .map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+        .collect();
     file.write_all(&bytes).unwrap();
 }
 
 fn decodes(image: &[f32], pattern: &Checkerboard, square: f64, pose: &PatternPose) -> bool {
     let backend = CpuBackend::new();
-    let Ok(detection) =
-        detect_checkerboard(&backend, image, BufferLayout::packed(SIZE, SIZE), 4.0, 10, 0, 0.0)
-    else {
+    let Ok(detection) = detect_checkerboard(
+        &backend,
+        image,
+        BufferLayout::packed(SIZE, SIZE),
+        4.0,
+        10,
+        0,
+        0.0,
+    ) else {
         return false;
     };
     let Ok((recovered, _)) =
@@ -306,7 +322,9 @@ fn main() {
 
     for (name, layout, nominal) in designs {
         let pose = PatternPose::new(x, y, nominal + d);
-        let pattern = Checkerboard::new(8.0, ORDER).unwrap().with_code_layout(layout);
+        let pattern = Checkerboard::new(8.0, ORDER)
+            .unwrap()
+            .with_code_layout(layout);
         let clean = pattern.render(SIZE, SIZE, &pose).as_slice().to_vec();
 
         for variant in ALL {
@@ -323,13 +341,20 @@ fn main() {
                 let file = format!("{name}_{}_{level}.pgm", slug(variant.name()));
                 write_pgm(&out.join(&file), &image);
                 let ok = decodes(&image, &pattern, 8.0, &pose);
-                writeln!(manifest, "{},{},{level},{name},{file},{ok}", variant.family(), variant.name())
-                    .unwrap();
+                writeln!(
+                    manifest,
+                    "{},{},{level},{name},{file},{ok}",
+                    variant.family(),
+                    variant.name()
+                )
+                .unwrap();
             }
         }
 
         for tile in [8.0, 4.0, 3.0, 2.5, 2.0, 1.5] {
-            let small = Checkerboard::new(tile, ORDER).unwrap().with_code_layout(layout);
+            let small = Checkerboard::new(tile, ORDER)
+                .unwrap()
+                .with_code_layout(layout);
             let image = small.render(SIZE, SIZE, &pose).as_slice().to_vec();
             let file = format!("{name}_tile-size_{tile}.pgm");
             write_pgm(&out.join(&file), &image);

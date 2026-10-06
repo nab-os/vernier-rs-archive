@@ -1,4 +1,4 @@
-use crate::math::{angle_in_pi_pi, Mat4, Scalar, Vec3};
+use crate::math::{Mat4, Scalar, Vec3, angle_in_pi_pi};
 use crate::scalar::Real;
 use std::fmt;
 
@@ -114,15 +114,7 @@ impl Pose {
     /// to `(-pi, pi]`.
     #[inline]
     pub fn angle_difference(&self, other: &Pose) -> Real {
-        use crate::scalar::consts::TAU;
-        let mut d = self.theta - other.theta;
-        while d > crate::scalar::consts::PI {
-            d -= TAU;
-        }
-        while d <= -crate::scalar::consts::PI {
-            d += TAU;
-        }
-        d
+        crate::math::angle_in_pi_pi(self.theta - other.theta)
     }
 
     /// Transformation matrix from the camera to the pattern frame (`cTp`),
@@ -231,6 +223,25 @@ impl Pose {
     }
 }
 
+impl fmt::Display for Pose {
+    /// Matches the C++ `Pose::toString` output.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_3d {
+            write!(
+                f,
+                "[ x={}; y={}; z={}; alpha={}; beta={}; gamma={}; pixelSize={} ]",
+                self.x, self.y, self.z, self.theta, self.beta, self.gamma, self.pixel_size
+            )
+        } else {
+            write!(
+                f,
+                "[ x={}; y={}; alpha={}; pixelSize={} ]",
+                self.x, self.y, self.theta, self.pixel_size
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,24 +293,5 @@ mod tests {
         assert!(!p.is_3d);
         assert_eq!(p.theta, 10.0);
         assert_eq!(p.pixel_size, 1.0);
-    }
-}
-
-impl fmt::Display for Pose {
-    /// Matches the C++ `Pose::toString` output.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_3d {
-            write!(
-                f,
-                "[ x={}; y={}; z={}; alpha={}; beta={}; gamma={}; pixelSize={} ]",
-                self.x, self.y, self.z, self.theta, self.beta, self.gamma, self.pixel_size
-            )
-        } else {
-            write!(
-                f,
-                "[ x={}; y={}; alpha={}; pixelSize={} ]",
-                self.x, self.y, self.theta, self.pixel_size
-            )
-        }
     }
 }

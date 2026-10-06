@@ -52,7 +52,7 @@ pub fn render_spectrum_debug(
     // Log magnitude, fftshifted, normalized to 0..1 for the background.
     let mag: Vec<f64> = spec
         .iter()
-        .map(|c| (1.0 + (c.norm_sqr() as f64).sqrt()).ln())
+        .map(|c| (1.0 + c.norm_sqr().sqrt()).ln())
         .collect();
     let shifted = pgm::fftshift(width, height, &mag);
     let (lo, hi) = shifted

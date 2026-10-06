@@ -4,7 +4,7 @@
 //! into a [`Pose`](vernier_core::Pose) — the algorithm layer for the `Pose` type
 //! that lives in `vernier-core`.
 //!
-//! Two estimation paths, mirroring the two regimes in the Vernier papers:
+//! Three estimation paths, mirroring the regimes in the Vernier papers:
 //!
 //! - [`periodic`] — phase-only. Fine sub-period translation and orientation, but
 //!   position is ambiguous modulo the period (you know where you are within a
@@ -15,7 +15,7 @@
 //!   whose carriers run along the diagonals and whose code is read from squares
 //!   painted against their checkerboard parity.
 //!
-//! Both are plain host-side functions over already-detected features — no
+//! All are plain host-side functions over already-detected features — no
 //! backend generics, since the device work is done by this point.
 
 pub mod absolute;

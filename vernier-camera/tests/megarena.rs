@@ -179,7 +179,12 @@ fn a_board_with_its_edges_in_view_reads_at_any_turn() {
         let view = measure_view(&image, WIDTH, HEIGHT, &target).expect("board found");
         assert!(view.is_absolute(), "turned {}°: {:?}", 15 * step, view.code);
         let errors = reprojection_errors(&camera, &pose, &view);
-        assert!(rms(&errors) < 0.1, "turned {}°: rms {}", 15 * step, rms(&errors));
+        assert!(
+            rms(&errors) < 0.1,
+            "turned {}°: rms {}",
+            15 * step,
+            rms(&errors)
+        );
     }
 }
 

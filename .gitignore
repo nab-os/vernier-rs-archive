@@ -1,7 +1,7 @@
 /target
 /.claude
-**/bin
-**/obj
+/vernier-dotnet/**/bin
+/vernier-dotnet/**/obj
 /vernier-webapp/target
 /vernier-webapp/dist
 /vernier-webapp/.dioxus
@@ -12,3 +12,10 @@
 /vernier-cabi/examples/solve_pnp
 /vernier-cabi/examples/camera.json
 /vernier-cabi/examples/camera-megarena.json
+
+# Default outputs of the CLI when run from the repository root.
+/camera.json
+/phone-camera.json
+/poses.csv
+/frames/
+/render.png

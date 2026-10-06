@@ -68,7 +68,9 @@ pub fn fit_plane(wrapped: &[Real], width: usize, height: usize, crop_factor: Rea
 /// center through four quadrants. On well-conditioned maps the two match to
 /// machine epsilon in the gradients (differing only in the offset `c`, a
 /// convention); quarter-propagation is only more robust when the seed row/column
-/// fall on noise. Separable is kept for simplicity.
+/// fall on noise. The pipeline ([`crate::spectrum`]) uses the quarter
+/// propagation, [`crate::unwrap::quarters_unwrap_phase`]; this one backs
+/// [`fit_plane`].
 pub fn unwrap_2d(wrapped: &[Real], width: usize, height: usize) -> Vec<Real> {
     let mut phase = wrapped.to_vec();
 
@@ -95,8 +97,7 @@ pub fn unwrap_2d(wrapped: &[Real], width: usize, height: usize) -> Vec<Real> {
 }
 
 /// Fits the plane to an already-unwrapped phase surface. The production
-/// pipeline entry point (C++ `RegressionPlane::compute`); accumulation is
-/// always `f64` regardless of `Real`.
+/// pipeline entry point (C++ `RegressionPlane::compute`); accumulates in `f64`.
 ///
 /// `crop_factor` trims a border of `(crop_factor/2) * dimension` pixels on each
 /// side before fitting; coordinates remain centered on the FULL image so `c` is
@@ -108,8 +109,8 @@ pub fn fit_plane_to_unwrapped(
     crop_factor: Real,
 ) -> PhasePlane {
     // --- Least-squares plane fit, centered coordinates ---
-    let col_off = ((width as f64 * crop_factor as f64) / 2.0) as usize;
-    let row_off = ((height as f64 * crop_factor as f64) / 2.0) as usize;
+    let col_off = ((width as f64 * crop_factor) / 2.0) as usize;
+    let row_off = ((height as f64 * crop_factor) / 2.0) as usize;
 
     let cropped_w = width - 2 * col_off;
     let cropped_h = height - 2 * row_off;
@@ -128,7 +129,7 @@ pub fn fit_plane_to_unwrapped(
         let j = (r - row_off) as f64 - center_y;
         for col in col_off..(width - col_off) {
             let i = (col - col_off) as f64 - center_x;
-            let p = phase[r * width + col] as f64;
+            let p = phase[r * width + col];
             sii += i * i;
             sjj += j * j;
             sij += i * j;
@@ -150,7 +151,11 @@ pub fn fit_plane_to_unwrapped(
         [spi, spj, sp],
     );
 
-    PhasePlane { a: a as Real, b: b as Real, c: c as Real }
+    PhasePlane {
+        a: a as Real,
+        b: b as Real,
+        c: c as Real,
+    }
 }
 
 /// Solves a 3x3 linear system by Cramer's rule. The matrix is tiny and

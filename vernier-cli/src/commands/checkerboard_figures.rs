@@ -155,9 +155,7 @@ fn annotate_sites(pattern: &Checkerboard, width: usize, height: usize, gray: &[f
                         Y_TINT
                     };
                     let inverted = pattern.square_inverted(i, j);
-                    if edge < ring {
-                        (colour, 1.0)
-                    } else if inverted && radius < 0.22 {
+                    if edge < ring || (inverted && radius < 0.22) {
                         (colour, 1.0)
                     } else {
                         (colour, 0.14)
@@ -232,9 +230,7 @@ fn save_spectrum(
             );
             let source_row = (dy.rem_euclid(height as isize)) as usize;
             let source_col = (dx.rem_euclid(width as isize)) as usize;
-            let magnitude = (data[source_row * width + source_col].norm() as f64)
-                .max(1e-12)
-                .ln();
+            let magnitude = data[source_row * width + source_col].norm().max(1e-12).ln();
             crop[row * side + col] = magnitude;
             // The window spreads DC over its immediate neighbourhood; scaling to
             // that would crush the carriers to black, so the display range comes
@@ -421,8 +417,7 @@ fn dft_bin(image: &[f32], width: usize, height: usize, fx: f64, fy: f64) -> (f64
 }
 
 fn wrap_pi(angle: f64) -> f64 {
-    let wrapped = (angle + std::f64::consts::PI).rem_euclid(TAU) - std::f64::consts::PI;
-    wrapped
+    (angle + std::f64::consts::PI).rem_euclid(TAU) - std::f64::consts::PI
 }
 
 fn to_u8(value: f64) -> u8 {

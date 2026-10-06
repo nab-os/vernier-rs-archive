@@ -4,8 +4,8 @@
 use vernier_core::buffer::BufferLayout;
 use vernier_core::{Complex32, ComputeBackend};
 use vernier_cpu::CpuBackend;
-use vernier_spectral::spectrum::{analyze_direction, forward};
 use vernier_pose::{Calibration, periodic};
+use vernier_spectral::spectrum::{analyze_direction, forward};
 
 /// A horizontal cosine: fundamental along x, fy = 0.
 fn cosine(width: usize, height: usize, frequency: usize) -> (Vec<Complex32>, BufferLayout) {
