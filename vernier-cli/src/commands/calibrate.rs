@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use vernier_camera::{Calibration, Camera, Model, Target, View, calibrate, measure_view};
-use vernier_patterns::checkerboard::CodeLayout;
 
 use crate::imageio;
 
@@ -29,25 +28,6 @@ pub struct CameraFile {
     /// How many views the calibration used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub views: Option<usize>,
-}
-
-/// The board described by the command line: its square side, code size and
-/// layout. Fails on a size no board can be rendered with.
-pub fn target(square: f64, code_size: u32, diamonds: bool) -> Result<Target, String> {
-    if square <= 0.0 {
-        return Err(format!("square size {square} must be positive"));
-    }
-    let layout = if diamonds {
-        CodeLayout::Diamonds
-    } else {
-        CodeLayout::Squares
-    };
-    let target = Target::new(square, code_size).with_layout(layout);
-    // Building the checkerboard is what checks the code size.
-    target
-        .checkerboard()
-        .ok_or_else(|| format!("unsupported code size {code_size}; must be 4..=12"))?;
-    Ok(target)
 }
 
 /// The lens model named on the command line.

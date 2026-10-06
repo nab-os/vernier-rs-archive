@@ -101,6 +101,21 @@ Follow the board live: every frame is solved and the pose is traced on a page at
 
 A calibration only holds at the resolution it was made at. `--device` also takes a video file, which is a way to rehearse without a camera.
 
+Instead of `--square`, `--code-size` and `--diamonds`, `calibrate`, `calibrate-webcam`, `phone`, `solve-pnp` and `track` take `--pattern`, a JSON file describing the board. It is also the way to calibrate and track with a megarena. `make-pattern` writes one, given `--square` for a checkerboard or `--pitch` (the dot spacing) for a megarena:
+
+```bash
+./target/release/vernier make-pattern --square 5.0 --code-size 6 --output board.json
+./target/release/vernier make-pattern --pitch 0.5 --code-size 8 --output megarena.json
+./target/release/vernier calibrate --pattern board.json frames/*.png
+```
+
+```json
+{ "pattern": "checkerboard", "square": 5.0, "code_size": 6, "layout": "squares", "packing": "one-bit" }
+{ "pattern": "megarena", "pitch": 0.5, "code_size": 8 }
+```
+
+`code_size` defaults to 8, `layout` to `squares` (or `diamonds`) and `packing` to `one-bit` (or `two-bits`).
+
 ---
 
 ## Language bindings
