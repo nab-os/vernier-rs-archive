@@ -370,13 +370,22 @@ pub struct CalibrateWebcamArgs {
     #[argh(option, default = "String::from(\"/dev/video0\")")]
     pub device: String,
 
-    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    /// ffmpeg demuxer, e.g. v4l2 or dshow (default: v4l2 for /dev/ paths)
     #[argh(option)]
     pub format: Option<String>,
+
+    /// encoding asked of the camera, e.g. mjpeg or yuyv422; list them with
+    /// `ffmpeg -f v4l2 -list_formats all -i /dev/video0` (default: the camera's)
+    #[argh(option)]
+    pub input_format: Option<String>,
 
     /// capture size asked of the camera, e.g. 1280x720 (default: the camera's)
     #[argh(option)]
     pub video_size: Option<String>,
+
+    /// frames per second asked of the camera, e.g. 30 (default: the camera's)
+    #[argh(option)]
+    pub framerate: Option<String>,
 
     /// distinct views to collect (default: 15)
     #[argh(option, default = "15")]
@@ -480,14 +489,23 @@ pub struct TrackArgs {
     #[argh(option, default = "String::from(\"/dev/video0\")")]
     pub device: String,
 
-    /// ffmpeg input format (default: v4l2 for /dev/ paths)
+    /// ffmpeg demuxer, e.g. v4l2 or dshow (default: v4l2 for /dev/ paths)
     #[argh(option)]
     pub format: Option<String>,
+
+    /// encoding asked of the camera, e.g. mjpeg or yuyv422; list them with
+    /// `ffmpeg -f v4l2 -list_formats all -i /dev/video0` (default: the camera's)
+    #[argh(option)]
+    pub input_format: Option<String>,
 
     /// capture size asked of the camera; must match the calibration
     /// (default: the calibration's size)
     #[argh(option)]
     pub video_size: Option<String>,
+
+    /// frames per second asked of the camera, e.g. 30 (default: the camera's)
+    #[argh(option)]
+    pub framerate: Option<String>,
 
     /// port of the page on localhost (default: 8080)
     #[argh(option, default = "8080")]

@@ -7,9 +7,9 @@ use std::time::Instant;
 
 use vernier_core::buffer::BufferLayout;
 use vernier_core::{Complex32, ComputeBackend, Real};
-use vernier_spectral::spectrum::analyze_two;
 use vernier_patterns::PatternPose;
 use vernier_patterns::periodic::Periodic;
+use vernier_spectral::spectrum::analyze_two;
 
 use crate::backend_select::BackendTask;
 
@@ -59,20 +59,38 @@ impl BackendTask for Benchmark {
     fn run<B: ComputeBackend>(&self, backend: &B) -> BenchReport {
         let pixels = Self::synthetic_image(self.size);
         let layout = BufferLayout::packed(self.size, self.size);
-        let complex: Vec<Complex32> =
-            pixels.iter().map(|&v| Complex32::new(v as f32, 0.0)).collect();
+        let complex: Vec<Complex32> = pixels
+            .iter()
+            .map(|&v| Complex32::new(v as f32, 0.0))
+            .collect();
         let sigma = self.sigma as Real;
         let smoothing = self.smoothing_sigma as Real;
 
         // Warm-up: prime any FFT planning or GPU pipeline caches.
-        let _ = analyze_two(backend, &complex, layout, sigma, self.min_frequency, self.max_frequency, smoothing);
+        let _ = analyze_two(
+            backend,
+            &complex,
+            layout,
+            sigma,
+            self.min_frequency,
+            self.max_frequency,
+            smoothing,
+        );
 
         let mut best = f64::INFINITY;
         let mut total = 0.0;
         for _ in 0..self.iterations {
             let start = Instant::now();
-            analyze_two(backend, &complex, layout, sigma, self.min_frequency, self.max_frequency, smoothing)
-                .expect("detection failed during benchmark");
+            analyze_two(
+                backend,
+                &complex,
+                layout,
+                sigma,
+                self.min_frequency,
+                self.max_frequency,
+                smoothing,
+            )
+            .expect("detection failed during benchmark");
             let ms = start.elapsed().as_secs_f64() * 1e3;
             total += ms;
             best = best.min(ms);
