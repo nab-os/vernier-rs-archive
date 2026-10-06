@@ -24,6 +24,30 @@ jobs:
       - run: cargo test --workspace --exclude vernier-cuda --exclude vernier-gpu --exclude vernier-cli
       - run: cargo test -p vernier-cli --no-default-features
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: sudo apt-get install -y --no-install-recommends libxcb1-dev
+
+      - run: cargo fmt --all --check
+
+      # Type-checks every crate, CUDA and Vulkan ones included: clippy doesn't
+      # link or run anything, so no GPU or CUDA toolkit is needed.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # build.rs regenerates vernier.h with cbindgen; the committed copy must
+      # match it.
+      - run: cargo build -p vernier-cabi
+      - run: git diff --exit-code vernier-cabi/include
+
   native:
     needs: test
     if: startsWith(github.ref, 'refs/tags/')

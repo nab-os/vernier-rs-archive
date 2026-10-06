@@ -75,7 +75,7 @@ pub fn run(args: &RenderPatternArgs) -> Result<(), String> {
             period_px,
             code_size,
         } => Megarena::new(period_px, code_size)
-            .ok_or_else(|| format!("unsupported code size {code_size}; must be 3..=16"))?
+            .ok_or_else(|| format!("unsupported code size {code_size}; must be 4..=12"))?
             .render(args.width, args.height, &pose),
     };
 

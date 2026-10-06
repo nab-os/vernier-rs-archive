@@ -10,7 +10,11 @@ use vernier_core::{Complex32, ComputeBackend};
 use vernier_cpu::CpuBackend;
 use vernier_spectral::spectrum::{analyze_direction, forward};
 
-fn cosine_pattern(width: usize, height: usize, frequency_x: usize) -> (Vec<Complex32>, BufferLayout) {
+fn cosine_pattern(
+    width: usize,
+    height: usize,
+    frequency_x: usize,
+) -> (Vec<Complex32>, BufferLayout) {
     use std::f32::consts::TAU;
     let layout = BufferLayout::packed(width, height);
     let mut data = Vec::with_capacity(layout.len());

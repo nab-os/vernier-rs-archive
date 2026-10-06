@@ -24,7 +24,7 @@ pub struct RoundtripMegarena {
     pub smoothing_sigma: f32,
     /// Use the Vulkan GPU renderer instead of the CPU path.
     pub render_gpu: bool,
-    /// Camera pixel size in µm/pixel (only used when render_gpu is true).
+    /// Camera pixel size in µm/pixel, for the GPU renderer.
     #[cfg_attr(not(feature = "vulkan"), allow(dead_code))]
     pub pixel_size: f32,
 }
@@ -154,8 +154,8 @@ impl BackendTask for RoundtripMegarena {
         let expected_abs_x = self.true_x as Real - period * ps_baseline as Real;
         let expected_abs_y = self.true_y as Real - period * ps_baseline as Real;
 
-        let abs_error_x = (recovered_x - expected_abs_x).abs() as f64;
-        let abs_error_y = (recovered_y - expected_abs_y).abs() as f64;
+        let abs_error_x = (recovered_x - expected_abs_x).abs();
+        let abs_error_y = (recovered_y - expected_abs_y).abs();
 
         // Fine error in the carrier (formula) frame: compares the detected carrier
         // phase against the expected phase from the true position. Uses fract() so
@@ -186,8 +186,8 @@ impl BackendTask for RoundtripMegarena {
             let d = d.rem_euclid(period);
             if d > period / 2.0 { d - period } else { d }
         };
-        let fine_error_x = wrap_half(detected_fine_x_dir - expected_fine_x).abs() as f64;
-        let fine_error_y = wrap_half(detected_fine_y_dir - expected_fine_y).abs() as f64;
+        let fine_error_x = wrap_half(detected_fine_x_dir - expected_fine_x).abs();
+        let fine_error_y = wrap_half(detected_fine_y_dir - expected_fine_y).abs();
 
         let recovered_theta = fine.theta as f64;
         let true_theta = self.true_theta as f64;
@@ -203,11 +203,11 @@ impl BackendTask for RoundtripMegarena {
         RoundtripMegarenaReport {
             backend: backend.name().to_string(),
             renderer: renderer_name.to_string(),
-            true_x: expected_abs_x as f64,
-            true_y: expected_abs_y as f64,
+            true_x: expected_abs_x,
+            true_y: expected_abs_y,
             true_theta,
-            recovered_x: recovered_x as f64,
-            recovered_y: recovered_y as f64,
+            recovered_x,
+            recovered_y,
             recovered_theta,
             abs_error_x,
             abs_error_y,

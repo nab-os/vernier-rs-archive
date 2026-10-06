@@ -1,8 +1,9 @@
 // vernier-dotnet quick-start example.
 //
 // Generates a 512×512 synthetic sinusoidal periodic image and runs
-// DetectPeriodic.  The recovered sub-period phase should be near zero because
-// the pattern is centred at the origin.
+// DetectPeriodic.  The pattern's crests sit on multiples of the period and the
+// image centre is 256 px in, so X and Y come out as minus 256 modulo the
+// period (-16 for a 40 px period), with the sign convention of the C++ library.
 //
 // Build and run:
 //   cargo build -p vernier-cabi --release          # build native library

@@ -31,7 +31,7 @@ use crate::backend_select::{BackendKind, Demodulator};
 /// board does not fill the set with near copies.
 const VIEW_INTERVAL: Duration = Duration::from_millis(700);
 
-/// How long an upload waits for the frame before it to be taken.
+/// How long an upload waits for the tracking loop to take the previous frame.
 const UPLOAD_WAIT: Duration = Duration::from_secs(5);
 
 /// Options of `vernier phone`.
@@ -484,6 +484,15 @@ fn config_dir() -> PathBuf {
 /// The server's TLS configuration, from the self-signed certificate kept in
 /// the configuration directory, made first if there is none. It names
 /// `localhost` and the machine's network address, those the phone opens.
+/// Writes a file only its owner can read, as a private key should be.
+fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    std::io::Write::write_all(&mut options.open(path)?, contents)
+}
+
 fn tls_config(ip: Option<IpAddr>) -> Result<Arc<rustls::ServerConfig>, String> {
     let dir = config_dir();
     let (cert_path, key_path) = (dir.join("phone-cert.pem"), dir.join("phone-key.pem"));
@@ -495,7 +504,7 @@ fn tls_config(ip: Option<IpAddr>) -> Result<Arc<rustls::ServerConfig>, String> {
             .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
         std::fs::write(&cert_path, made.cert.pem())
             .map_err(|e| format!("could not write {}: {e}", cert_path.display()))?;
-        std::fs::write(&key_path, made.signing_key.serialize_pem())
+        write_private(&key_path, made.signing_key.serialize_pem().as_bytes())
             .map_err(|e| format!("could not write {}: {e}", key_path.display()))?;
         eprintln!("made a self-signed certificate in {}", dir.display());
     }

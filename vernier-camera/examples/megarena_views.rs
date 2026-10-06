@@ -21,7 +21,11 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 fn main() {
-    let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "megarena-views".into()));
+    let out = PathBuf::from(
+        std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "megarena-views".into()),
+    );
     std::fs::create_dir_all(&out).expect("output directory");
 
     let mut camera = Camera::ideal(Model::Pinhole, WIDTH, HEIGHT, 700.0, 701.0, 322.5, 238.0);
@@ -66,7 +70,11 @@ fn main() {
         let image = scene.render(&pose);
         let name = format!("view_{n:02}");
         let mut pgm = format!("P5\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
-        pgm.extend(image.iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8));
+        pgm.extend(
+            image
+                .iter()
+                .map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
+        );
         std::fs::write(out.join(format!("{name}.pgm")), pgm).expect("write view");
         writeln!(
             truth,

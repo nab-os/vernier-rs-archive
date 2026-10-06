@@ -39,16 +39,25 @@ vec2 cmul(vec2 a, vec2 b) {
     return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
 }
 
+// πn²/N reduced to (-π, π]. n²/N reaches thousands of half-turns, where an
+// f32 angle keeps few fractional bits and GPU sin/cos lose accuracy, but the
+// chirp only depends on n² mod 2N, which integers give exactly (n < N ≤ 4096).
+float chirp_angle(uint n) {
+    uint q = (n * n) % (2u * pc.N);
+    float centred = q > pc.N ? float(q) - 2.0 * float(pc.N) : float(q);
+    return PI * centred / float(pc.N);
+}
+
 // exp(-jπn²/N) for forward, exp(+jπn²/N) for inverse.
 vec2 pre_chirp(uint n) {
-    float angle = PI * float(n) * float(n) / float(pc.N);
+    float angle = chirp_angle(n);
     if (pc.is_inverse == 0u) angle = -angle;
     return vec2(cos(angle), sin(angle));
 }
 
 // exp(+jπm²/N) for forward, exp(-jπm²/N) for inverse.
 vec2 b_chirp(uint m) {
-    float angle = PI * float(m) * float(m) / float(pc.N);
+    float angle = chirp_angle(m);
     if (pc.is_inverse != 0u) angle = -angle;
     return vec2(cos(angle), sin(angle));
 }

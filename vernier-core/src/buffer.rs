@@ -1,4 +1,5 @@
 use crate::complex::Complex32;
+use crate::error::{Result, VernierError};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct BufferLayout {
@@ -30,6 +31,27 @@ impl BufferLayout {
     #[inline]
     pub const fn is_contiguous(&self) -> bool {
         self.row_stride == self.width
+    }
+
+    /// Checks that `len` elements fill this layout as one contiguous, non-empty
+    /// buffer, which is what every backend's `upload` needs.
+    pub fn check_upload(&self, len: usize) -> Result<()> {
+        if !self.is_contiguous() {
+            return Err(VernierError::NonContiguous {
+                stride: self.row_stride,
+                width: self.width,
+            });
+        }
+        if self.is_empty() {
+            return Err(VernierError::UnsupportedSize(self.width, self.height));
+        }
+        if len != self.len() {
+            return Err(VernierError::LengthMismatch {
+                expected: self.len(),
+                actual: len,
+            });
+        }
+        Ok(())
     }
 
     #[inline]

@@ -38,12 +38,7 @@ impl ComputeBackend for CpuBackend {
     }
 
     fn upload(&self, data: &[Complex32], layout: BufferLayout) -> Result<Self::Buffer2D> {
-        if !layout.is_contiguous() {
-            return Err(VernierError::NonContiguous {
-                stride: layout.row_stride,
-                width: layout.width,
-            });
-        }
+        layout.check_upload(data.len())?;
         CpuBuffer::from_slice(data, layout).ok_or(VernierError::ShapeMismatch {
             lhs: layout,
             rhs: BufferLayout::packed(layout.width, layout.height),
@@ -215,7 +210,6 @@ impl ComputeJob for CpuJob<'_> {
     fn gaussian_blur_2d(&mut self, buf: &mut CpuBuffer, sigma: Real) -> Result<()> {
         let width = buf.layout().width;
         let height = buf.layout().height;
-        let sigma = sigma as f64;
         let radius = (3.0 * sigma).ceil() as usize;
         let n = 2 * radius + 1;
         let kernel: Vec<f64> = (0..n)
@@ -236,8 +230,8 @@ impl ComputeJob for CpuJob<'_> {
             for c in 0..width {
                 let mut value = 0.0_f64;
                 for (ki, &kv) in kernel.iter().enumerate() {
-                    let sc = (c as isize + ki as isize - radius as isize)
-                        .rem_euclid(width as isize) as usize;
+                    let sc = (c as isize + ki as isize - radius as isize).rem_euclid(width as isize)
+                        as usize;
                     value += buf.as_slice()[r * width + sc].re as f64 * kv;
                 }
                 tmp[r * width + c] = value;
@@ -344,7 +338,8 @@ impl ComputeJob for CpuJob<'_> {
         };
 
         if smoothing_sigma > 0.0 {
-            self.gaussian_blur_2d(&mut spectrum, smoothing_sigma).unwrap();
+            self.gaussian_blur_2d(&mut spectrum, smoothing_sigma)
+                .unwrap();
         }
 
         let (cx1, cy1) = {
@@ -375,9 +370,13 @@ impl ComputeJob for CpuJob<'_> {
         }
 
         let (cx2, cy2) = {
-            if let Some(a) =
-                Self::halfplane_argmax_angular_excl(&spectrum, width, height, center_angle, half_width)
-            {
+            if let Some(a) = Self::halfplane_argmax_angular_excl(
+                &spectrum,
+                width,
+                height,
+                center_angle,
+                half_width,
+            ) {
                 a
             } else {
                 return Ok(None);
@@ -393,12 +392,28 @@ impl ComputeJob for CpuJob<'_> {
 
         Ok(CpuBuffer::from_slice(
             &[
-                Complex32 { re: d1x as f32, im: 0.0 },
-                Complex32 { re: d1y as f32, im: 0.0 },
-                Complex32 { re: d2x as f32, im: 0.0 },
-                Complex32 { re: d2y as f32, im: 0.0 },
+                Complex32 {
+                    re: d1x as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d1y as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d2x as f32,
+                    im: 0.0,
+                },
+                Complex32 {
+                    re: d2y as f32,
+                    im: 0.0,
+                },
             ],
-            BufferLayout { width: 2, height: 2, row_stride: 2 },
+            BufferLayout {
+                width: 2,
+                height: 2,
+                row_stride: 2,
+            },
         ))
     }
 
@@ -424,7 +439,7 @@ impl ComputeJob for CpuJob<'_> {
         let sfx2 = signed(peaks_data[2].re as usize, width) as f64;
         let sfy2 = signed(peaks_data[3].re as usize, height) as f64;
 
-        let neg_inv_two_sigma_sq = -1.0_f64 / (2.0 * (sigma as f64).powi(2));
+        let neg_inv_two_sigma_sq = -1.0_f64 / (2.0 * sigma.powi(2));
 
         let mut acc = [[0.0_f64; 5]; 2]; // [c_re, c_im, sfx_numerator, sfy_numerator, denominator] per direction
 
@@ -433,7 +448,11 @@ impl ComputeJob for CpuJob<'_> {
             for fx in 0..width {
                 let sfx = signed(fx, width) as f64;
                 let s = data[fy * width + fx];
-                let sign = if (fx + fy) % 2 == 0 { 1.0_f64 } else { -1.0_f64 };
+                let sign = if (fx + fy) % 2 == 0 {
+                    1.0_f64
+                } else {
+                    -1.0_f64
+                };
                 let s_re = s.re as f64 * sign;
                 let s_im = s.im as f64 * sign;
                 let magnitude_sq = (s.re as f64).powi(2) + (s.im as f64).powi(2);
@@ -462,10 +481,17 @@ impl ComputeJob for CpuJob<'_> {
 
         let tau = std::f64::consts::TAU;
         let mut result = Vec::with_capacity(6);
-        for direction in 0..2 {
-            let [c_re, c_im, sfx_numerator, sfy_numerator, denominator] = acc[direction];
-            let a = if denominator != 0.0 { (tau * sfx_numerator / denominator / width as f64) as f32 } else { 0.0 };
-            let b = if denominator != 0.0 { (tau * sfy_numerator / denominator / height as f64) as f32 } else { 0.0 };
+        for [c_re, c_im, sfx_numerator, sfy_numerator, denominator] in acc {
+            let a = if denominator != 0.0 {
+                (tau * sfx_numerator / denominator / width as f64) as f32
+            } else {
+                0.0
+            };
+            let b = if denominator != 0.0 {
+                (tau * sfy_numerator / denominator / height as f64) as f32
+            } else {
+                0.0
+            };
             let c = c_im.atan2(c_re) as f32;
             result.push(Complex32::new(a, 0.0));
             result.push(Complex32::new(b, 0.0));
@@ -474,7 +500,11 @@ impl ComputeJob for CpuJob<'_> {
 
         Ok(CpuBuffer::from_slice(
             &result,
-            vernier_core::buffer::BufferLayout { width: 6, height: 1, row_stride: 6 },
+            vernier_core::buffer::BufferLayout {
+                width: 6,
+                height: 1,
+                row_stride: 6,
+            },
         )
         .unwrap())
     }

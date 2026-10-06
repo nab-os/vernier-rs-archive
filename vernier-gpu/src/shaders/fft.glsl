@@ -6,8 +6,10 @@
 //   pass=0  →  row pass,    dispatch [1,      height, 1]
 //   pass=1  →  column pass, dispatch [width,  1,      1]
 //
-// For power-of-two N ≤ 2048: Cooley-Tukey DIT radix-2 (in-place, shared mem).
-// For other N             : direct DFT (O(N²), reads shared mem, writes to global).
+// For power-of-two N ≤ 4096: Cooley-Tukey DIT radix-2 (in-place, shared mem).
+// The host sends every other N through Bluestein (bluestein_*.glsl), whose
+// padded length is a power of two, so the direct-transform branch below is
+// never dispatched.
 //
 // Max supported N: 4096 (shared memory = 4096 × 8 B = 32 KB).
 

@@ -97,7 +97,7 @@ fn record_i32(out: &mut Vec<u8>, record: u16, values: &[i32]) {
 /// GDSII strings are null-padded to an even length.
 fn record_string(out: &mut Vec<u8>, record: u16, s: &str) {
     let mut bytes = s.as_bytes().to_vec();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         bytes.push(0);
     }
     record_header(out, record, bytes.len());
@@ -210,7 +210,10 @@ mod tests {
         }
         for &val in &[1.0, 1e-3, 1e-9, 0.5, 1000.0, 9.0] {
             let d = decode(gds_real8(val));
-            assert!((d - val).abs() <= val.abs() * 1e-12 + 1e-18, "val={val} got={d}");
+            assert!(
+                (d - val).abs() <= val.abs() * 1e-12 + 1e-18,
+                "val={val} got={d}"
+            );
         }
         assert_eq!(gds_real8(0.0), [0u8; 8]);
     }

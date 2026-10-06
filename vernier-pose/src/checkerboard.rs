@@ -10,8 +10,8 @@
 
 use std::collections::BTreeMap;
 
-use vernier_core::scalar::consts::{PI, TAU};
 use vernier_core::buffer::BufferLayout;
+use vernier_core::scalar::consts::{PI, TAU};
 use vernier_core::{Complex32, ComputeBackend, Pose, Real};
 use vernier_patterns::checkerboard::{Checkerboard, CodeLayout, CodePacking};
 use vernier_patterns::lfsr::{Lfsr, WindowIndex};
@@ -127,10 +127,16 @@ impl std::fmt::Display for CheckerboardError {
                 )
             }
             Self::AmbiguousPosition => {
-                write!(f, "two different positions matched the code about equally well")
+                write!(
+                    f,
+                    "two different positions matched the code about equally well"
+                )
             }
             Self::WeakEvidence => {
-                write!(f, "the code was not read with enough evidence to trust a position")
+                write!(
+                    f,
+                    "the code was not read with enough evidence to trust a position"
+                )
             }
             Self::SubharmonicLock => {
                 write!(
@@ -228,7 +234,9 @@ pub fn extract_code_from_phases(
     layout: CodeLayout,
     packing: CodePacking,
 ) -> Result<CheckerboardCode, CheckerboardError> {
-    decode_phases(phase1, phase2, 1.0, intensity, width, height, reference, order, layout, packing)
+    decode_phases(
+        phase1, phase2, 1.0, intensity, width, height, reference, order, layout, packing,
+    )
 }
 
 /// The decode shared by both entry points. `sign2` (±1) turns `phase2` to
@@ -253,8 +261,7 @@ fn decode_phases(
     let samples = accumulate_squares(phase1, phase2, sign2, intensity, width, height);
     // Squares per bit in two dimensions: one supercell holds `bits_per_cell`
     // of them per axis.
-    let squares_per_bit =
-        (packing.cell() * packing.cell() / packing.bits_per_cell()) as usize;
+    let squares_per_bit = (packing.cell() * packing.cell() / packing.bits_per_cell()) as usize;
     if samples.len() < squares_per_bit * (order as usize + MIN_SPARE_BITS) {
         return Err(CheckerboardError::NotEnoughSquares);
     }
@@ -264,7 +271,17 @@ fn decode_phases(
         .iter()
         .enumerate()
         .flat_map(|(transform_index, matrix)| {
-            try_transform(&white, centre_measured, transform_index, matrix, layout, packing, &lfsr, &index, order)
+            try_transform(
+                &white,
+                centre_measured,
+                transform_index,
+                matrix,
+                layout,
+                packing,
+                &lfsr,
+                &index,
+                order,
+            )
         })
         .collect();
     candidates.sort_by(|a, b| {
@@ -278,7 +295,9 @@ fn decode_phases(
     });
 
     let mut ranked = candidates.into_iter();
-    let mut best = ranked.next().ok_or(CheckerboardError::NoConsistentHypothesis)?;
+    let mut best = ranked
+        .next()
+        .ok_or(CheckerboardError::NoConsistentHypothesis)?;
     let centre = best.centre_square;
     best.runner_up_false_accept = ranked
         .find(|c| c.centre_square != centre)
@@ -393,12 +412,12 @@ pub fn read_squares_with_packing(
         })
         .collect();
 
-    let (i_min, i_max) = squares
-        .iter()
-        .fold((i64::MAX, i64::MIN), |(lo, hi), s| (lo.min(s.i), hi.max(s.i)));
-    let (j_min, j_max) = squares
-        .iter()
-        .fold((i64::MAX, i64::MIN), |(lo, hi), s| (lo.min(s.j), hi.max(s.j)));
+    let (i_min, i_max) = squares.iter().fold((i64::MAX, i64::MIN), |(lo, hi), s| {
+        (lo.min(s.i), hi.max(s.i))
+    });
+    let (j_min, j_max) = squares.iter().fold((i64::MAX, i64::MIN), |(lo, hi), s| {
+        (lo.min(s.j), hi.max(s.j))
+    });
 
     let centre_pixel = (detection.height / 2) * detection.width + detection.width / 2;
     let snap = |fitted: Real, measured: Real| fitted + TAU * ((measured - fitted) / TAU).round();
@@ -487,8 +506,16 @@ fn binarize(samples: &BTreeMap<(i64, i64), (Real, u64)>) -> BTreeMap<(i64, i64),
         return BTreeMap::new();
     }
 
-    let (i_min, i_max) = means.keys().fold((i64::MAX, i64::MIN), |(lo, hi), &(i, _)| (lo.min(i), hi.max(i)));
-    let (j_min, j_max) = means.keys().fold((i64::MAX, i64::MIN), |(lo, hi), &(_, j)| (lo.min(j), hi.max(j)));
+    let (i_min, i_max) = means
+        .keys()
+        .fold((i64::MAX, i64::MIN), |(lo, hi), &(i, _)| {
+            (lo.min(i), hi.max(i))
+        });
+    let (j_min, j_max) = means
+        .keys()
+        .fold((i64::MAX, i64::MIN), |(lo, hi), &(_, j)| {
+            (lo.min(j), hi.max(j))
+        });
     let width = (i_max - i_min + 1) as usize;
     let height = (j_max - j_min + 1) as usize;
     let mut grid = vec![Real::NAN; width * height];
@@ -526,7 +553,12 @@ fn binarize(samples: &BTreeMap<(i64, i64), (Real, u64)>) -> BTreeMap<(i64, i64),
             continue;
         }
         let (level_even, level_odd) = (median(&mut even), median(&mut odd));
-        judged.push(((i, j), 0.5 * (level_even + level_odd), (level_even - level_odd).abs(), m));
+        judged.push((
+            (i, j),
+            0.5 * (level_even + level_odd),
+            (level_even - level_odd).abs(),
+            m,
+        ));
     }
     if judged.is_empty() {
         return BTreeMap::new();
@@ -544,14 +576,22 @@ fn binarize(samples: &BTreeMap<(i64, i64), (Real, u64)>) -> BTreeMap<(i64, i64),
 /// -1 if the peak search returned the carriers swapped (a mirrored frame).
 fn handedness(detection: &Detection) -> Real {
     let (p1, p2) = (&detection.dir1.plane, &detection.dir2.plane);
-    if p1.a * p2.b - p1.b * p2.a > 0.0 { -1.0 } else { 1.0 }
+    if p1.a * p2.b - p1.b * p2.a > 0.0 {
+        -1.0
+    } else {
+        1.0
+    }
 }
 
 /// True locks measure ~0.1, false locks 1.3 and up.
 const SUBHARMONIC_LIMIT: Real = 0.5;
 
 fn signed_bin(bin: usize, n: usize) -> i64 {
-    if bin > n / 2 { bin as i64 - n as i64 } else { bin as i64 }
+    if bin > n / 2 {
+        bin as i64 - n as i64
+    } else {
+        bin as i64
+    }
 }
 
 /// Hann-windowed amplitude of an image at given FFT bins, without a full FFT.
@@ -590,7 +630,11 @@ impl Demodulator {
     fn amplitude(&self, bx: i64, by: i64) -> Real {
         let fx = TAU * bx as Real / self.width as Real;
         let fy = TAU * by as Real / self.height as Real;
-        let (cx, sx): (Vec<Real>, Vec<Real>) = self.xs.iter().map(|&x| ((fx * x).cos(), (fx * x).sin())).unzip();
+        let (cx, sx): (Vec<Real>, Vec<Real>) = self
+            .xs
+            .iter()
+            .map(|&x| ((fx * x).cos(), (fx * x).sin()))
+            .unzip();
         let cols = self.xs.len();
         let (mut re, mut im) = (0.0, 0.0);
         for (r, &y) in self.ys.iter().enumerate() {
@@ -633,7 +677,11 @@ pub fn subharmonic_ratios_with_packing(
         if tx.abs() + 2 >= (w / 2) as i64 || ty.abs() + 2 >= (h / 2) as i64 {
             return 0.0;
         }
-        let step = if tx.abs() + 2 < (w / 4) as i64 && ty.abs() + 2 < (h / 4) as i64 { 2 } else { 1 };
+        let step = if tx.abs() + 2 < (w / 4) as i64 && ty.abs() + 2 < (h / 4) as i64 {
+            2
+        } else {
+            1
+        };
         let demod = Demodulator::new(intensity, w, h, step);
         let base = demod.amplitude(bx, by);
         let mut harmonic: Real = 0.0;
@@ -680,7 +728,15 @@ pub fn detect_checkerboard_with_packing<B: ComputeBackend>(
     packing: CodePacking,
 ) -> vernier_core::Result<Detection> {
     let complex: Vec<Complex32> = intensity.iter().map(|&v| Complex32::new(v, 0.0)).collect();
-    let first = analyze_two(backend, &complex, layout, sigma, min_frequency, max_frequency, smoothing_sigma)?;
+    let first = analyze_two(
+        backend,
+        &complex,
+        layout,
+        sigma,
+        min_frequency,
+        max_frequency,
+        smoothing_sigma,
+    )?;
     let ratios = subharmonic_ratios_with_packing(&first, intensity, packing);
     if ratios.iter().all(|&r| r <= SUBHARMONIC_LIMIT) {
         return Ok(first);
@@ -699,8 +755,15 @@ pub fn detect_checkerboard_with_packing<B: ComputeBackend>(
     // Search above the false line (r) but below the real carrier, which sits at
     // `cell` times it.
     let raised = min_frequency.max((2.0 * false_radius).ceil() as usize);
-    let Ok(second) = analyze_two(backend, &complex, layout, sigma, raised, max_frequency, smoothing_sigma)
-    else {
+    let Ok(second) = analyze_two(
+        backend,
+        &complex,
+        layout,
+        sigma,
+        raised,
+        max_frequency,
+        smoothing_sigma,
+    ) else {
         return Ok(first);
     };
     let worst = |d: &Detection| {
@@ -708,7 +771,11 @@ pub fn detect_checkerboard_with_packing<B: ComputeBackend>(
             .into_iter()
             .fold(0.0, Real::max)
     };
-    if worst(&second) < worst(&first) { Ok(second) } else { Ok(first) }
+    if worst(&second) < worst(&first) {
+        Ok(second)
+    } else {
+        Ok(first)
+    }
 }
 
 /// Coordinates the code is counted in: `(i, j)`, or `(i+j, i-j)` for diagonals.
@@ -725,6 +792,7 @@ struct DefectMap {
     parity_shift: i64,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_transform(
     white: &BTreeMap<(i64, i64), bool>,
     centre_measured: (Real, Real),
@@ -1003,7 +1071,12 @@ fn hypotheses(packing: CodePacking) -> Real {
 
 /// Finds the bit run in the LFSR, trying every anchor and scoring the whole run.
 /// Returns (position of first bit, spare bits, errors).
-fn localize(bits: &[u8], lfsr: &Lfsr, index: &WindowIndex, order: u32) -> Option<(i64, usize, usize)> {
+fn localize(
+    bits: &[u8],
+    lfsr: &Lfsr,
+    index: &WindowIndex,
+    order: u32,
+) -> Option<(i64, usize, usize)> {
     let order = order as usize;
     if bits.len() < order + MIN_SPARE_BITS {
         return None;
@@ -1112,9 +1185,19 @@ pub fn solve(
 mod tests {
     use super::*;
 
-    fn naive_amplitude(intensity: &[f32], width: usize, height: usize, bx: i64, by: i64, step: usize) -> Real {
+    fn naive_amplitude(
+        intensity: &[f32],
+        width: usize,
+        height: usize,
+        bx: i64,
+        by: i64,
+        step: usize,
+    ) -> Real {
         let mean = intensity.iter().map(|&v| v as Real).sum::<Real>() / intensity.len() as Real;
-        let (fx, fy) = (TAU * bx as Real / width as Real, TAU * by as Real / height as Real);
+        let (fx, fy) = (
+            TAU * bx as Real / width as Real,
+            TAU * by as Real / height as Real,
+        );
         let (mut re, mut im) = (0.0, 0.0);
         for y in (0..height).step_by(step) {
             let wy = 0.5 - 0.5 * (TAU * y as Real / (height - 1) as Real).cos();
@@ -1143,7 +1226,10 @@ mod tests {
             for (bx, by) in [(0, 0), (5, -3), (-12, 7), (20, 11), (-3, -9)] {
                 let fast = demod.amplitude(bx, by);
                 let slow = naive_amplitude(&image, w, h, bx, by, step);
-                assert!((fast - slow).abs() <= 1e-9 * slow.max(1.0), "bin ({bx},{by}) step {step}: {fast} vs {slow}");
+                assert!(
+                    (fast - slow).abs() <= 1e-9 * slow.max(1.0),
+                    "bin ({bx},{by}) step {step}: {fast} vs {slow}"
+                );
             }
         }
     }

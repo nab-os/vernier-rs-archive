@@ -59,10 +59,7 @@ impl BackendTask for Benchmark {
     fn run<B: ComputeBackend>(&self, backend: &B) -> BenchReport {
         let pixels = Self::synthetic_image(self.size);
         let layout = BufferLayout::packed(self.size, self.size);
-        let complex: Vec<Complex32> = pixels
-            .iter()
-            .map(|&v| Complex32::new(v as f32, 0.0))
-            .collect();
+        let complex: Vec<Complex32> = pixels.iter().map(|&v| Complex32::new(v, 0.0)).collect();
         let sigma = self.sigma as Real;
         let smoothing = self.smoothing_sigma as Real;
 

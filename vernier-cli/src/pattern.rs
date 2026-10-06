@@ -107,7 +107,7 @@ impl PatternFile {
                 }
                 let target = Target::megarena(pitch, code_size);
                 target.megarena_pattern().ok_or_else(|| {
-                    format!("unsupported megarena code size {code_size}; must be 3..=16")
+                    format!("unsupported megarena code size {code_size}; must be 4..=12")
                 })?;
                 Ok(target)
             }

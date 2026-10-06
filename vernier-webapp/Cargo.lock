@@ -3286,7 +3286,6 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "nalgebra",
- "num-complex",
  "thiserror 2.0.20",
 ]
 
