@@ -2,13 +2,13 @@
 //! painted back.
 //!
 //! The megarena's carriers run along its dot rows and columns, one period per
-//! dot, bright at the dot centres. A lattice cell spans the four dots at its
-//! corners; the pattern drops a cell's quarter-dots when the period on either
-//! axis is off (the middle period of a code bit that is 0) or when the cell
-//! is the corner of its 3×3 group. So each cell reads as present or absent
-//! from the light on its corners against the dark between them, and the cells
-//! then give, in turn, the quarter-turn and the cell group from the always-on
-//! and always-off cells, and the position along each axis from the code bits.
+//! dot, bright at the dot centres. Each dot owns the cell of one period around
+//! its centre; the pattern leaves a dot out when the period on either axis is
+//! off (the middle period of a code bit that is 0) or when the dot is the
+//! corner of its 3×3 group. So each dot reads as present or absent from the
+//! light at its centre against the dark at its cell's edge, and the dots then
+//! give, in turn, the quarter-turn and the 3×3 groups from the always-on and
+//! always-off dots, and the position along each axis from the code bits.
 
 use std::collections::HashMap;
 
@@ -26,12 +26,12 @@ const TURNS: [[i64; 4]; 4] = [
     [0, 1, -1, 0],  // −90°
 ];
 
-/// Dot weight above which a pixel counts as on a cell's dots, and below which
+/// Dot weight above which a pixel counts as on its dot's centre, and below which
 /// as between them.
 const ON_DOT: Real = 0.4;
 const OFF_DOT: Real = 0.05;
 
-/// Pixels needed on and off the dots to read a cell.
+/// Pixels needed on and off the dot to read a cell.
 const MIN_CELL_PIXELS: usize = 3;
 
 /// Cells either way whose contrasts set a cell's reference.
@@ -129,15 +129,11 @@ fn dot_weight(u: Real) -> Real {
     0.5 + 0.5 * (TAU * u).cos()
 }
 
-/// Turns a measured cell into the pattern's cells, up to the shift.
+/// Turns a measured dot into the pattern's dots, up to the shift. Dot centres
+/// sit on integers, which a quarter-turn keeps on integers.
 fn turn_cell(transform: usize, (a, b): (i64, i64)) -> (i64, i64) {
     let t = TURNS[transform];
-    // Through the centre: a quarter-turn maps unit cells onto unit cells.
-    let (u, v) = (2 * a + 1, 2 * b + 1);
-    (
-        (t[0] * u + t[1] * v).div_euclid(2),
-        (t[2] * u + t[3] * v).div_euclid(2),
-    )
+    (t[0] * a + t[1] * b, t[2] * a + t[3] * b)
 }
 
 /// What a cell must read as, from its place in its 3×3 group: the corner is
@@ -154,7 +150,7 @@ fn fixed_cell(c: i64, r: i64) -> Option<bool> {
 /// Reads which cells are present, from the phase maps (`[φ1, φ2, _]` per
 /// pixel, NaN off the board) and the frame.
 fn read_cells(maps: &[[Real; 3]], intensity: &[f32]) -> HashMap<(i64, i64), bool> {
-    // Per cell: sum and count on its dots, then between them.
+    // Per dot: sum and count on its centre, then at its cell's edge.
     let mut pools: HashMap<(i64, i64), [Real; 4]> = HashMap::new();
     for (m, &value) in maps.iter().zip(intensity) {
         if !(m[0].is_finite() && m[1].is_finite()) {
@@ -163,7 +159,7 @@ fn read_cells(maps: &[[Real; 3]], intensity: &[f32]) -> HashMap<(i64, i64), bool
         let (u, v) = lattice([m[0], m[1]]);
         let weight = dot_weight(u) * dot_weight(v);
         let pool = pools
-            .entry((u.floor() as i64, v.floor() as i64))
+            .entry((u.round() as i64, v.round() as i64))
             .or_default();
         if weight > ON_DOT {
             pool[0] += value as Real;
@@ -297,7 +293,7 @@ pub(crate) fn read_code(
 /// Tile side for the local contrast fit, in carrier periods.
 const RESTORE_TILE: Real = 4.0;
 
-/// The frame with the megarena's missing quarter-dots painted back, so that
+/// The frame with the megarena's missing dots painted back, so that
 /// every window sees the plain dot grid and its phase is not pulled by the
 /// code. The frame is taken as `A + B · pattern` locally, `A` and `B` fitted
 /// per tile on the pixels under the measured lattice.
