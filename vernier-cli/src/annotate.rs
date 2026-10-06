@@ -49,7 +49,9 @@ impl Canvas {
         for channel in 0..3 {
             let background = self.pixels[pixel_offset + channel] as f64;
             let foreground = rgb[channel] as f64;
-            self.pixels[pixel_offset + channel] = (background * (1.0 - alpha) + foreground * alpha).round().clamp(0.0, 255.0) as u8;
+            self.pixels[pixel_offset + channel] = (background * (1.0 - alpha) + foreground * alpha)
+                .round()
+                .clamp(0.0, 255.0) as u8;
         }
     }
 
@@ -93,7 +95,14 @@ impl Canvas {
     /// Draws a line (Bresenham).
 
     /// Fills a small square centered at (center_x, center_y), half-size `half_size`, with alpha blend.
-    pub fn fill_square(&mut self, center_x: isize, center_y: isize, half_size: isize, rgb: [u8; 3], alpha: f64) {
+    pub fn fill_square(
+        &mut self,
+        center_x: isize,
+        center_y: isize,
+        half_size: isize,
+        rgb: [u8; 3],
+        alpha: f64,
+    ) {
         for delta_y in -half_size..=half_size {
             for delta_x in -half_size..=half_size {
                 self.blend(center_x + delta_x, center_y + delta_y, rgb, alpha);

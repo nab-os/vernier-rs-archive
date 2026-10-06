@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use vernier_patterns::{PatternPose, checkerboard::{Checkerboard, CodeLayout}};
+use vernier_patterns::{
+    PatternPose,
+    checkerboard::{Checkerboard, CodeLayout},
+};
 
 use crate::imageio;
 

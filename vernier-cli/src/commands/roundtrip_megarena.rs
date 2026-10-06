@@ -1,11 +1,11 @@
 use vernier_core::buffer::BufferLayout;
 use vernier_core::scalar::consts::TAU;
 use vernier_core::{Complex32, ComputeBackend, Real};
-use vernier_spectral::spectrum::analyze_two;
 use vernier_patterns::PatternPose;
 use vernier_patterns::megarena::Megarena;
 use vernier_pose::absolute::{CoarseDecoder, MegarenaDecoder, extract_code};
 use vernier_pose::{Calibration, periodic};
+use vernier_spectral::spectrum::analyze_two;
 
 use crate::backend_select::BackendTask;
 
@@ -64,28 +64,42 @@ impl BackendTask for RoundtripMegarena {
             .unwrap_or_else(|| panic!("unsupported code size {}", self.code_size))
             .with_lfsr_offset(lfsr_offset);
 
-        let pose = PatternPose::new(self.true_x as Real, self.true_y as Real, self.true_theta as Real);
+        let pose = PatternPose::new(
+            self.true_x as Real,
+            self.true_y as Real,
+            self.true_theta as Real,
+        );
         let (image, renderer_name) = if self.render_gpu {
             #[cfg(feature = "vulkan")]
             {
                 use vernier_patterns::{CameraModel, PatternRenderer};
                 let vk_renderer = PatternRenderer::new();
-                let camera = CameraModel { pixel_size: self.pixel_size };
+                let camera = CameraModel {
+                    pixel_size: self.pixel_size,
+                };
                 let img = pattern.render_gpu(&vk_renderer, &camera, self.width, self.height, &pose);
                 (img, "gpu-vulkan-raster")
             }
             #[cfg(not(feature = "vulkan"))]
             {
-                eprintln!("--render-gpu requires the 'vulkan' feature (build with --features vulkan)");
+                eprintln!(
+                    "--render-gpu requires the 'vulkan' feature (build with --features vulkan)"
+                );
                 std::process::exit(1);
             }
         } else {
-            (pattern.render(self.width, self.height, &pose), "cpu-analytic")
+            (
+                pattern.render(self.width, self.height, &pose),
+                "cpu-analytic",
+            )
         };
 
         let layout = BufferLayout::packed(self.width, self.height);
-        let complex: Vec<Complex32> =
-            image.as_slice().iter().map(|&v| Complex32::new(v, 0.0)).collect();
+        let complex: Vec<Complex32> = image
+            .as_slice()
+            .iter()
+            .map(|&v| Complex32::new(v, 0.0))
+            .collect();
 
         let detection = analyze_two(
             backend,
@@ -157,8 +171,16 @@ impl BackendTask for RoundtripMegarena {
         };
         let true_fine_x_dir = -(period * (-pose_for_x / period).fract());
         let true_fine_y_dir = -(period * (-pose_for_y / period).fract());
-        let expected_fine_x = if x_msb { true_fine_x_dir } else { -true_fine_x_dir };
-        let expected_fine_y = if y_msb { true_fine_y_dir } else { -true_fine_y_dir };
+        let expected_fine_x = if x_msb {
+            true_fine_x_dir
+        } else {
+            -true_fine_x_dir
+        };
+        let expected_fine_y = if y_msb {
+            true_fine_y_dir
+        } else {
+            -true_fine_y_dir
+        };
 
         let wrap_half = |d: Real| -> Real {
             let d = d.rem_euclid(period);
@@ -171,8 +193,12 @@ impl BackendTask for RoundtripMegarena {
         let true_theta = self.true_theta as f64;
         let mut error_theta = recovered_theta - true_theta;
         let pi = std::f64::consts::PI;
-        while error_theta > pi  { error_theta -= 2.0 * pi; }
-        while error_theta < -pi { error_theta += 2.0 * pi; }
+        while error_theta > pi {
+            error_theta -= 2.0 * pi;
+        }
+        while error_theta < -pi {
+            error_theta += 2.0 * pi;
+        }
 
         RoundtripMegarenaReport {
             backend: backend.name().to_string(),

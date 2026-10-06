@@ -85,8 +85,12 @@ fn main() {
             }
             webcam::run(&webcam::WebcamArgs {
                 device: a.device.clone(),
-                format: a.format.clone(),
-                video_size: a.video_size.clone(),
+                options: webcam::CaptureOptions {
+                    format: a.format.clone(),
+                    input_format: a.input_format.clone(),
+                    video_size: a.video_size.clone(),
+                    framerate: a.framerate.clone(),
+                },
                 views: a.views,
                 interval: std::time::Duration::from_secs_f64(a.interval),
                 target: calibrate::target(a.square, a.code_size, a.diamonds)?,
@@ -126,8 +130,12 @@ fn main() {
                 camera,
                 target: calibrate::target(a.square, a.code_size, a.diamonds)?,
                 device: a.device.clone(),
-                format: a.format.clone(),
-                video_size: Some(video_size),
+                options: webcam::CaptureOptions {
+                    format: a.format.clone(),
+                    input_format: a.input_format.clone(),
+                    video_size: Some(video_size),
+                    framerate: a.framerate.clone(),
+                },
                 port: a.port,
                 csv: a.csv.as_ref().map(PathBuf::from),
                 backend: backend(&a.backend)?,

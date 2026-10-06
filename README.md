@@ -85,6 +85,8 @@ Calibrate a webcam (frames come through `ffmpeg`, which must be installed). Hold
     --video-size 1280x720 --save-frames frames
 ```
 
+`--input-format`, `--video-size` and `--framerate` pick the camera's mode, on `calibrate-webcam` and `track` alike. Many webcams send their larger sizes only as Motion-JPEG, so ask for `--input-format mjpeg`; `ffmpeg -f v4l2 -list_formats all -i /dev/video0` lists what the camera offers.
+
 Or work from photos:
 
 ```bash

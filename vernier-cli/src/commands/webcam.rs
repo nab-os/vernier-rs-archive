@@ -21,10 +21,7 @@ use crate::imageio;
 pub struct WebcamArgs {
     /// Camera device, or any input ffmpeg can open.
     pub device: String,
-    /// ffmpeg input format, when not guessed from the device.
-    pub format: Option<String>,
-    /// Capture size asked of the camera, as `WIDTHxHEIGHT`.
-    pub video_size: Option<String>,
+    pub options: CaptureOptions,
     /// Distinct views to collect before calibrating.
     pub views: usize,
     /// Least time between two frames examined.
@@ -34,6 +31,21 @@ pub struct WebcamArgs {
     pub output: PathBuf,
     /// Directory to save the kept frames in, if any.
     pub save_frames: Option<PathBuf>,
+}
+
+/// How ffmpeg should open the device. Each `None` leaves the choice to ffmpeg
+/// and the camera.
+#[derive(Clone, Debug, Default)]
+pub struct CaptureOptions {
+    /// ffmpeg demuxer, `-f`; v4l2 for `/dev/` paths when not given.
+    pub format: Option<String>,
+    /// Encoding asked of the camera, `-input_format`, such as `mjpeg` or
+    /// `yuyv422`.
+    pub input_format: Option<String>,
+    /// Frame size asked of the camera, as `WIDTHxHEIGHT`.
+    pub video_size: Option<String>,
+    /// Frames per second asked of the camera, such as `30` or `30000/1001`.
+    pub framerate: Option<String>,
 }
 
 /// One grayscale frame from the stream, intensities in `0.0..=1.0`.
@@ -82,17 +94,10 @@ pub(crate) struct Capture {
 
 impl Capture {
     /// Starts ffmpeg on `device` and a thread that keeps its newest frame.
-    /// `format` defaults to V4L2 for `/dev/` paths.
-    pub fn open(
-        device: &str,
-        format: Option<&str>,
-        video_size: Option<&str>,
-    ) -> Result<Self, String> {
-        let mut ffmpeg = ffmpeg_command(device, format, video_size)
-            .spawn()
-            .map_err(|e| {
-                format!("could not start ffmpeg ({e}); it must be installed and on the PATH")
-            })?;
+    pub fn open(device: &str, options: &CaptureOptions) -> Result<Self, String> {
+        let mut ffmpeg = ffmpeg_command(device, options).spawn().map_err(|e| {
+            format!("could not start ffmpeg ({e}); it must be installed and on the PATH")
+        })?;
         let stdout = ffmpeg.stdout.take().expect("piped stdout");
 
         let latest = Arc::new(Mutex::new(Latest::default()));
@@ -144,7 +149,7 @@ impl Drop for Capture {
 
 /// The ffmpeg invocation that decodes `device` and writes its frames to stdout
 /// as a stream of grayscale binary PGM images.
-fn ffmpeg_command(device: &str, format: Option<&str>, video_size: Option<&str>) -> Command {
+fn ffmpeg_command(device: &str, options: &CaptureOptions) -> Command {
     let is_device = device.starts_with("/dev/");
     let mut command = Command::new("ffmpeg");
     command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
@@ -152,11 +157,18 @@ fn ffmpeg_command(device: &str, format: Option<&str>, video_size: Option<&str>) 
         // A file plays at its own pace, as a camera would.
         command.arg("-re");
     }
-    if let Some(format) = format.or(is_device.then_some("v4l2")) {
+    if let Some(format) = options.format.as_deref().or(is_device.then_some("v4l2")) {
         command.args(["-f", format]);
     }
-    if let Some(size) = video_size {
-        command.args(["-video_size", size]);
+    // Input options, so they must come before `-i`.
+    for (flag, value) in [
+        ("-input_format", &options.input_format),
+        ("-video_size", &options.video_size),
+        ("-framerate", &options.framerate),
+    ] {
+        if let Some(value) = value {
+            command.args([flag, value]);
+        }
     }
     command
         .args(["-i", device])
@@ -310,11 +322,7 @@ pub fn run(args: &WebcamArgs) -> Result<(), String> {
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
-    let capture = Capture::open(
-        &args.device,
-        args.format.as_deref(),
-        args.video_size.as_deref(),
-    )?;
+    let capture = Capture::open(&args.device, &args.options)?;
     eprintln!(
         "reading {}; hold the board in view and change its angle and place between captures",
         args.device

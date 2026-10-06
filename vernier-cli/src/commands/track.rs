@@ -24,7 +24,7 @@ use vernier_camera::{
 use vernier_core::Real;
 
 use super::calibrate::load_camera;
-use super::webcam::{Capture, Frame};
+use super::webcam::{Capture, CaptureOptions, Frame};
 use crate::backend_select::{BackendKind, Demodulator};
 
 /// The page, served at `/`.
@@ -55,10 +55,7 @@ pub struct TrackArgs {
     pub target: Target,
     /// Device ffmpeg reads frames from.
     pub device: String,
-    /// Pixel format asked of the device, if any.
-    pub format: Option<String>,
-    /// Frame size asked of the device, as `WIDTHxHEIGHT`.
-    pub video_size: Option<String>,
+    pub options: CaptureOptions,
     /// Port of the page on localhost.
     pub port: u16,
     /// File every pose is also written to, as CSV.
@@ -72,11 +69,7 @@ pub fn run(args: &TrackArgs) -> Result<(), String> {
     let camera = load_camera(&args.camera)?;
     let demodulator = Arc::new(Demodulator::new(args.backend)?);
     let shared = listen(("127.0.0.1", args.port), args.target, None, None)?;
-    let capture = Capture::open(
-        &args.device,
-        args.format.as_deref(),
-        args.video_size.as_deref(),
-    )?;
+    let capture = Capture::open(&args.device, &args.options)?;
     eprintln!("open http://localhost:{}/ to watch the pose", args.port);
     let mut tracker = Tracker::new(shared, args.target, args.csv.as_deref(), demodulator)?;
     let mut last_index: Option<u64> = None;
