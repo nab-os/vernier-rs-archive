@@ -105,11 +105,11 @@ A calibration only holds at the resolution it was made at. `--device` also takes
 
 `track`, `phone` and `calibrate-webcam` take `--backend gpu` to demodulate the frames on a Vulkan GPU; the spectral search, the code and the board's restoration stay on the CPU. The points come out the same to within 1e-6 of a square. `cargo run --release -p vernier-gpu --example local_demod` compares both backends on a 1280×720 view.
 
-Instead of `--square`, `--code-size` and `--diamonds`, `calibrate`, `calibrate-webcam`, `phone`, `solve-pnp` and `track` take `--pattern`, a JSON file describing the board. It is also the way to calibrate and track with a megarena. `make-pattern` writes one, given `--square` for a checkerboard or `--pitch` (the dot spacing) for a megarena:
+Instead of `--square`, `--code-size` and `--diamonds`, `calibrate`, `calibrate-webcam`, `phone`, `solve-pnp` and `track` take `--pattern`, a JSON file describing the board. It is also the way to calibrate and track with a megarena. `make-pattern checkerboard` or `make-pattern megarena` writes one, with the options of that pattern (`--square`, or `--pitch` for the dot spacing):
 
 ```bash
-./target/release/vernier make-pattern --square 5.0 --code-size 6 --output board.json
-./target/release/vernier make-pattern --pitch 0.5 --code-size 8 --output megarena.json
+./target/release/vernier make-pattern checkerboard --square 5.0 --code-size 6 --output board.json
+./target/release/vernier make-pattern megarena --pitch 0.5 --code-size 8 --output megarena.json
 ./target/release/vernier calibrate --pattern board.json frames/*.png
 ```
 
