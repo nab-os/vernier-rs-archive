@@ -28,10 +28,10 @@
 // `VernierTarget::packing`: two code bits per axis in each 5×5 supercell.
 #define VERNIER_PACKING_TWO_BITS 1
 
-// `VernierTarget::kind`: the coded checkerboard of `vernier render-pattern checkerboard`.
+// `VernierTarget::kind`: the coded checkerboard of `vernier render-pattern`.
 #define VERNIER_TARGET_CHECKERBOARD 0
 
-// `VernierTarget::kind`: the megarena dot grid of `vernier render-pattern megarena`.
+// `VernierTarget::kind`: the megarena dot grid of `vernier render-pattern`.
 #define VERNIER_TARGET_MEGARENA 1
 
 // Opaque handle to a Vernier detector. Create with `vernier_detector_new`
@@ -56,7 +56,7 @@ typedef struct VernierPose {
 } VernierPose;
 
 // The printed board: which pattern, its size and how its code is laid out.
-// What `vernier render-pattern checkerboard` prints by default is
+// What `vernier render-pattern` prints by default is
 // `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT,
 // VERNIER_TARGET_CHECKERBOARD }`, which `vernier_target_default` returns;
 // `vernier_target_megarena` gives a megarena.
@@ -193,11 +193,11 @@ struct VernierPose vernier_detect_megarena(struct VernierDetector *det,
                                            size_t max_frequency,
                                            double smoothing_sigma);
 
-// A target as `vernier render-pattern checkerboard` prints it by default:
+// A target as `vernier render-pattern` prints it by default:
 // upright squares, one code bit per supercell.
 struct VernierTarget vernier_target_default(double square, uint32_t order);
 
-// A megarena as `vernier render-pattern megarena` draws it, of dot pitch
+// A megarena as `vernier render-pattern` draws it, of dot pitch
 // `pitch` (in the unit poses should come out in) and LFSR order `order`.
 struct VernierTarget vernier_target_megarena(double pitch, uint32_t order);
 

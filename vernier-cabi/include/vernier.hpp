@@ -189,14 +189,14 @@ enum class CodePacking : std::uint32_t {
 
 /// Which pattern a `Target` is.
 enum class PatternKind : std::uint32_t {
-    /// The coded checkerboard of `vernier render-pattern checkerboard`.
+    /// The coded checkerboard of `vernier render-pattern`.
     Checkerboard = VERNIER_TARGET_CHECKERBOARD,
-    /// The megarena dot grid of `vernier render-pattern megarena`.
+    /// The megarena dot grid of `vernier render-pattern`.
     Megarena     = VERNIER_TARGET_MEGARENA,
 };
 
 /// The printed board. The defaults match what
-/// `vernier render-pattern checkerboard` prints, so usually only `square` and
+/// `vernier render-pattern` prints, so usually only `square` and
 /// `order` need setting; for a megarena use `Target::megarena(pitch, order)`.
 struct Target {
     /// Side of one square, or for a megarena the dot pitch, in the unit poses
@@ -210,7 +210,7 @@ struct Target {
     CodePacking   packing = CodePacking::OneBit;
     PatternKind   kind    = PatternKind::Checkerboard;
 
-    /// A megarena as `vernier render-pattern megarena` draws it: dot pitch and
+    /// A megarena as `vernier render-pattern` draws it: dot pitch and
     /// LFSR order.
     static Target megarena(double pitch, std::uint32_t order) {
         return {pitch, order, CodeLayout::Squares, CodePacking::OneBit, PatternKind::Megarena};
