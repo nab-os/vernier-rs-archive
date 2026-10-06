@@ -19,8 +19,7 @@ pub enum Command {
     CheckerboardFigures(CheckerboardFiguresArgs),
     MakePattern(MakePatternArgs),
     DetectMegarena(DetectMegarenaArgs),
-    RenderCheckerboard(RenderCheckerboardArgs),
-    RenderMegarena(RenderMegarenaArgs),
+    RenderPattern(RenderPatternArgs),
     RoundtripMegarena(RoundtripMegarenaArgs),
     Phone(PhoneArgs),
     SolvePnp(SolvePnpArgs),
@@ -107,43 +106,6 @@ pub struct DetectMegarenaArgs {
     pub verbose: bool,
 }
 
-/// Render a megarena pattern at given coordinates and save it as PNG.
-#[derive(FromArgs)]
-#[argh(subcommand, name = "render-megarena")]
-pub struct RenderMegarenaArgs {
-    /// output PNG file path
-    #[argh(option)]
-    pub output: String,
-
-    /// image width in pixels (default: 512)
-    #[argh(option, default = "512")]
-    pub width: usize,
-
-    /// image height in pixels (default: 512)
-    #[argh(option, default = "512")]
-    pub height: usize,
-
-    /// pattern X offset in pixels (default: 0.0)
-    #[argh(option, default = "0.0")]
-    pub x: f64,
-
-    /// pattern Y offset in pixels (default: 0.0)
-    #[argh(option, default = "0.0")]
-    pub y: f64,
-
-    /// pattern orientation in radians (default: 0.0)
-    #[argh(option, default = "0.0")]
-    pub theta: f64,
-
-    /// dot period in pixels (default: 20.0)
-    #[argh(option, default = "20.0")]
-    pub period: f64,
-
-    /// LFSR code size in bits, 3..=16 (default: 8)
-    #[argh(option, default = "8")]
-    pub code_size: u32,
-}
-
 /// Render a megarena at a known pose, run the full detection pipeline, and
 /// report the error between the recovered pose and the ground truth.
 #[derive(FromArgs)]
@@ -206,9 +168,25 @@ pub struct RoundtripMegarenaArgs {
     pub pixel_size: f64,
 }
 
-/// Render a coded checkerboard pattern at given coordinates and save it as PNG.
+/// Render a pattern at given coordinates and save it as PNG.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "render-checkerboard")]
+#[argh(subcommand, name = "render-pattern")]
+pub struct RenderPatternArgs {
+    #[argh(subcommand)]
+    pub pattern: RenderPatternKind,
+}
+
+/// The patterns render-pattern can draw.
+#[derive(FromArgs)]
+#[argh(subcommand)]
+pub enum RenderPatternKind {
+    Checkerboard(RenderCheckerboardArgs),
+    Megarena(RenderMegarenaArgs),
+}
+
+/// Render a coded checkerboard.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "checkerboard")]
 pub struct RenderCheckerboardArgs {
     /// output PNG file path
     #[argh(option)]
@@ -257,6 +235,43 @@ pub struct RenderCheckerboardArgs {
     pub corner_radius: f64,
 }
 
+/// Render a megarena dot grid.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "megarena")]
+pub struct RenderMegarenaArgs {
+    /// output PNG file path
+    #[argh(option)]
+    pub output: String,
+
+    /// image width in pixels (default: 512)
+    #[argh(option, default = "512")]
+    pub width: usize,
+
+    /// image height in pixels (default: 512)
+    #[argh(option, default = "512")]
+    pub height: usize,
+
+    /// pattern X offset in pixels (default: 0.0)
+    #[argh(option, default = "0.0")]
+    pub x: f64,
+
+    /// pattern Y offset in pixels (default: 0.0)
+    #[argh(option, default = "0.0")]
+    pub y: f64,
+
+    /// pattern orientation in radians (default: 0.0)
+    #[argh(option, default = "0.0")]
+    pub theta: f64,
+
+    /// dot period in pixels (default: 20.0)
+    #[argh(option, default = "20.0")]
+    pub period: f64,
+
+    /// LFSR code size in bits, 3..=16 (default: 8)
+    #[argh(option, default = "8")]
+    pub code_size: u32,
+}
+
 /// Generate the explainer figures and measurements for the coded checkerboard.
 #[derive(FromArgs)]
 #[argh(subcommand, name = "checkerboard-figures")]
@@ -299,7 +314,7 @@ pub enum PatternArgs {
     Megarena(MegarenaPatternArgs),
 }
 
-/// A coded checkerboard, as render-checkerboard draws it.
+/// A coded checkerboard, as render-pattern checkerboard draws it.
 #[derive(FromArgs)]
 #[argh(subcommand, name = "checkerboard")]
 pub struct CheckerboardPatternArgs {
@@ -324,7 +339,7 @@ pub struct CheckerboardPatternArgs {
     pub output: String,
 }
 
-/// A megarena dot grid, as render-megarena draws it.
+/// A megarena dot grid, as render-pattern megarena draws it.
 #[derive(FromArgs)]
 #[argh(subcommand, name = "megarena")]
 pub struct MegarenaPatternArgs {
@@ -342,7 +357,7 @@ pub struct MegarenaPatternArgs {
 }
 
 /// Calibrate a camera from photos of the coded checkerboard (as printed from
-/// render-checkerboard), taken at varied angles and places in the frame.
+/// render-pattern checkerboard), taken at varied angles and places in the frame.
 #[derive(FromArgs)]
 #[argh(subcommand, name = "calibrate")]
 pub struct CalibrateArgs {

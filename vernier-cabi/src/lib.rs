@@ -335,13 +335,13 @@ pub const VERNIER_PACKING_ONE_BIT: u32 = 0;
 /// `VernierTarget::packing`: two code bits per axis in each 5×5 supercell.
 pub const VERNIER_PACKING_TWO_BITS: u32 = 1;
 
-/// `VernierTarget::kind`: the coded checkerboard of `vernier render-checkerboard`.
+/// `VernierTarget::kind`: the coded checkerboard of `vernier render-pattern checkerboard`.
 pub const VERNIER_TARGET_CHECKERBOARD: u32 = 0;
-/// `VernierTarget::kind`: the megarena dot grid of `vernier render-megarena`.
+/// `VernierTarget::kind`: the megarena dot grid of `vernier render-pattern megarena`.
 pub const VERNIER_TARGET_MEGARENA: u32 = 1;
 
 /// The printed board: which pattern, its size and how its code is laid out.
-/// What `vernier render-checkerboard` prints by default is
+/// What `vernier render-pattern checkerboard` prints by default is
 /// `{ square, order, VERNIER_LAYOUT_SQUARES, VERNIER_PACKING_ONE_BIT,
 /// VERNIER_TARGET_CHECKERBOARD }`, which `vernier_target_default` returns;
 /// `vernier_target_megarena` gives a megarena.
@@ -523,8 +523,8 @@ fn pixel_slice<'a>(pixels: *const f32, width: usize, height: usize) -> Result<&'
     Ok(unsafe { std::slice::from_raw_parts(pixels, width * height) })
 }
 
-/// A target as `vernier render-checkerboard` prints it by default: upright
-/// squares, one code bit per supercell.
+/// A target as `vernier render-pattern checkerboard` prints it by default:
+/// upright squares, one code bit per supercell.
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_target_default(square: f64, order: u32) -> VernierTarget {
     VernierTarget {
@@ -536,8 +536,8 @@ pub extern "C" fn vernier_target_default(square: f64, order: u32) -> VernierTarg
     }
 }
 
-/// A megarena as `vernier render-megarena` draws it, of dot pitch `pitch`
-/// (in the unit poses should come out in) and LFSR order `order`.
+/// A megarena as `vernier render-pattern megarena` draws it, of dot pitch
+/// `pitch` (in the unit poses should come out in) and LFSR order `order`.
 #[unsafe(no_mangle)]
 pub extern "C" fn vernier_target_megarena(pitch: f64, order: u32) -> VernierTarget {
     VernierTarget {

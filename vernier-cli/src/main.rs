@@ -14,14 +14,13 @@ mod imageio;
 mod pattern;
 mod pgm;
 
-use args::{Command, PatternArgs, TopLevel};
+use args::{Command, PatternArgs, RenderPatternKind, TopLevel};
 use backend_select::{BackendKind, dispatch};
 use commands::benchmark::Benchmark;
 use commands::calibrate;
 use commands::checkerboard_figures;
 use commands::detect_megarena::DetectMegarena;
-use commands::render_checkerboard;
-use commands::render_megarena;
+use commands::render_pattern;
 use commands::roundtrip_megarena::RoundtripMegarena;
 use commands::{make_pattern, phone, solve_pnp, track, undistort, webcam};
 use pattern::{Layout, Packing, PatternFile};
@@ -172,24 +171,37 @@ fn main() {
                 report.x, report.y, report.theta, report.k3
             );
         }
-        Command::RenderCheckerboard(a) => {
-            let args = render_checkerboard::RenderCheckerboardArgs {
-                width: a.width,
-                height: a.height,
-                x: a.x,
-                y: a.y,
-                theta: a.theta,
-                square_px: a.square,
-                code_size: a.code_size,
-                plain: a.plain,
-                diamonds: a.diamonds,
-                corner_radius: a.corner_radius,
-                output: std::path::PathBuf::from(&a.output),
+        Command::RenderPattern(a) => {
+            let args = match a.pattern {
+                RenderPatternKind::Checkerboard(c) => render_pattern::RenderPatternArgs {
+                    width: c.width,
+                    height: c.height,
+                    x: c.x,
+                    y: c.y,
+                    theta: c.theta,
+                    pattern: render_pattern::Pattern::Checkerboard {
+                        square_px: c.square,
+                        code_size: c.code_size,
+                        plain: c.plain,
+                        diamonds: c.diamonds,
+                        corner_radius: c.corner_radius,
+                    },
+                    output: PathBuf::from(&c.output),
+                },
+                RenderPatternKind::Megarena(m) => render_pattern::RenderPatternArgs {
+                    width: m.width,
+                    height: m.height,
+                    x: m.x,
+                    y: m.y,
+                    theta: m.theta,
+                    pattern: render_pattern::Pattern::Megarena {
+                        period_px: m.period,
+                        code_size: m.code_size,
+                    },
+                    output: PathBuf::from(&m.output),
+                },
             };
-            if let Err(e) = render_checkerboard::run(&args) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
+            exit_on_error(render_pattern::run(&args))
         }
         Command::CheckerboardFigures(a) => {
             let args = checkerboard_figures::CheckerboardFiguresArgs {
@@ -232,22 +244,6 @@ fn main() {
                 ),
             };
             exit_on_error(make_pattern::run(&file, &PathBuf::from(output)))
-        }
-        Command::RenderMegarena(a) => {
-            let args = render_megarena::RenderMegarenaArgs {
-                width: a.width,
-                height: a.height,
-                x: a.x,
-                y: a.y,
-                theta: a.theta,
-                period_px: a.period,
-                code_size: a.code_size,
-                output: std::path::PathBuf::from(&a.output),
-            };
-            if let Err(e) = render_megarena::run(&args) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
         }
         Command::RoundtripMegarena(a) => {
             let Some(kind) = BackendKind::parse(&a.backend) else {

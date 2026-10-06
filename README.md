@@ -72,7 +72,7 @@ orientation.)
 Print a board. This is an A4 sheet at 300 dpi with 5 mm squares:
 
 ```bash
-./target/release/vernier render-checkerboard --output board.png \
+./target/release/vernier render-pattern checkerboard --output board.png \
     --width 2480 --height 3508 --square 59 --code-size 6
 ```
 

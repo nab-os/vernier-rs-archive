@@ -20,7 +20,7 @@ pub const DEFAULT_CODE_SIZE: u32 = 8;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "pattern", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum PatternFile {
-    /// The coded checkerboard of `render-checkerboard`.
+    /// The coded checkerboard of `render-pattern checkerboard`.
     Checkerboard {
         /// Side of one printed square, in the unit poses come out in.
         square: f64,
@@ -31,7 +31,7 @@ pub enum PatternFile {
         #[serde(default)]
         packing: Packing,
     },
-    /// The megarena dot grid of `render-megarena`.
+    /// The megarena dot grid of `render-pattern megarena`.
     Megarena {
         /// Distance between neighbouring dots, in the unit poses come out in.
         pitch: f64,
