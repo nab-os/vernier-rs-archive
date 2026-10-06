@@ -148,7 +148,7 @@ fn tilting_out_of_plane_skews_the_peak_pair() {
 /// crushes most of the spectrum to black.
 #[test]
 fn the_log_scale_lifts_the_spectrum_off_the_floor() {
-    let stages = analyse(PatternKind::Megarena, 128);
+    let stages = analyse(PatternKind::Checkerboard, 128);
     let median = |log: bool| {
         let mut levels = canvas::grey_levels(&stages.spectrum, log);
         levels.sort_unstable();

@@ -15,6 +15,10 @@
 //! The 2D pattern is the product of the x- and y-codes: a dot at (col, row) is
 //! present iff both periods are present. One corner dot of the elementary cell
 //! is dropped to break the π/2 rotation ambiguity.
+//!
+//! Dot `p` is centred on `p · period`, where the cosine carrier peaks, so its
+//! period cell spans `[p - ½, p + ½) · period` (C++ `(int)(x / period + 0.5)`).
+//! Removing a period therefore removes whole dots, never halves of two.
 
 use vernier_core::scalar::consts::TAU;
 use vernier_core::{GrayImage, Real};
@@ -104,7 +108,12 @@ impl Megarena {
                     && self.period_present(row)
                     && !(col.rem_euclid(3) == 0 && row.rem_euclid(3) == 0)
                 {
-                    cell_origins.push([col as f32 * period_um, row as f32 * period_um]);
+                    // Quads span a whole period; shift by half of one so the
+                    // dot peak at `col · period` sits in the middle of its quad.
+                    cell_origins.push([
+                        (col as f32 - 0.5) * period_um,
+                        (row as f32 - 0.5) * period_um,
+                    ]);
                 }
             }
         }
@@ -141,9 +150,10 @@ impl Megarena {
         let ux = x / self.period_px;
         let uy = y / self.period_px;
 
-        // Which integer period this point falls in, on each axis.
-        let pxi = ux.floor() as i64;
-        let pyi = uy.floor() as i64;
+        // Which dot this point belongs to, on each axis: the nearest carrier
+        // peak, not the period it falls in (that would split every dot in two).
+        let pxi = (ux + 0.5).floor() as i64;
+        let pyi = (uy + 0.5).floor() as i64;
 
         let x_on = self.period_present(pxi);
         let y_on = self.period_present(pyi);
@@ -214,6 +224,20 @@ mod tests {
                 .bit_at(triple.rem_euclid(m.code().len() as i64) as usize)
                 == 1;
             assert_eq!(m.period_present(central), expected, "triple {triple}");
+        }
+    }
+
+    #[test]
+    fn removed_dot_is_removed_whole() {
+        let period = 20.0;
+        let m = Megarena::new(period, 6).unwrap();
+        // Dot (0, 0) is the dropped orientation corner: dark over its whole
+        // cell, while its always-present neighbours stay fully lit at their peaks.
+        for &(x, y) in &[(0.0, 0.0), (-9.0, 0.0), (9.0, 9.0), (0.0, -9.0)] {
+            assert_eq!(m.intensity_at(x, y), 0.0, "({x}, {y})");
+        }
+        for &(x, y) in &[(-period, 0.0), (2.0 * period, 0.0), (0.0, -period)] {
+            assert!((m.intensity_at(x, y) - 1.0).abs() < 1e-9, "({x}, {y})");
         }
     }
 
